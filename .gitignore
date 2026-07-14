@@ -1,0 +1,16 @@
+# ESP-IDF 编译产物
+build/
+sdkconfig
+sdkconfig.old
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
