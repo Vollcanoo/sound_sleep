@@ -1,5 +1,28 @@
 # 电气连接设计（Electrical Connection）
 
+最终连接总览
+器件	引脚	连接对象
+ESP32	GPIO7	左驱动模块 High Trigger+
+ESP32	GPIO8	右驱动模块 High Trigger+
+ESP32	GPIO9	左AO3400A Gate（100Ω）
+ESP32	GPIO10	右AO3400A Gate（100Ω）
+ESP32	GND	公共GND
+ESP32	5V	电池A 5V+
+电池A	+	左驱动DC+、左阀+、ESP32
+电池B	+	右驱动DC+、右阀+
+电池A	-	公共GND
+电池B	-	公共GND
+左驱动 OUT+	左气泵+	
+左驱动 OUT-	左气泵-	
+右驱动 OUT+	右气泵+	
+右驱动 OUT-	右气泵-	
+左AO3400A Drain	左阀负极	
+左AO3400A Source	公共GND	
+左AO3400A Gate	GPIO9	
+右AO3400A Drain	右阀负极	
+右AO3400A Source	公共GND	
+右AO3400A Gate	GPIO10
+
 ## 1. 系统概述
 
 本项目采用 ESP32-S3 作为主控制器，负责读取睡姿识别结果，并控制左右气泵及左右泄气阀，实现气囊高度调节。
