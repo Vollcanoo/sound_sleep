@@ -1,33 +1,67 @@
-# ESP32 智能防鼾睡姿调节系统 — 云端 LLM 模块
+# ESP32 智能防鼾睡姿调节系统 — 云端 LLM 分析模块
 
-基于 ESP32-S3 + FreeRTOS + 火山引擎大模型 API 的智能防鼾系统。接收鼾声检测模型输出，通过云端 LLM 分析并生成气泵控制指令，自动调节睡姿。
+基于 ESP32-S3 + FreeRTOS + 火山引擎大模型 API 的智能防鼾系统。整合鼾声检测、睡姿识别和气囊控制，通过云端 LLM 分析生成个性化调节指令。
 
-## 系统架构
+## 系统全流程
 
 ```
-鼾声检测模型 → FreeRTOS Queue → 云端LLM分析 → 气泵控制
-(同学负责)       snore_features_t    (本模块)      pump_controller
+┌─────────────────────┐    ┌──────────────────────┐
+│  Snore_Det_esp      │    │  Posture_Recognition │
+│  INMP441 麦克风     │    │  FSR×3 压力传感器    │
+│  GPIO14/15/32 (I2S) │    │  GPIO4/5/6 (ADC)     │
+│  → 鼾声概率 0~1     │    │  → 睡姿分类+置信度  │
+└────────┬────────────┘    └────────┬─────────────┘
+         │                          │
+         └──────────┬───────────────┘
+                    ▼
+         ┌──────────────────────┐
+         │  sleep_llm (本模块)  │
+         │  FreeRTOS Queue      │
+         │  → 云端 LLM 分析     │
+         │  → 气泵控制指令      │
+         └──────────┬───────────┘
+                    ▼
+         ┌──────────────────────┐
+         │  airbag-hardware     │
+         │  左气泵 GPIO7        │
+         │  右气泵 GPIO8        │
+         │  左阀门 GPIO9        │
+         │  右阀门 GPIO10       │
+         │  → 枕头高度调节      │
+         └──────────────────────┘
 ```
+
+## GPIO 分配总览
+
+| GPIO | 用途 | 所属分支 |
+|------|------|---------|
+| 4, 5, 6 | FSR 压力传感器 (ADC) | Posture_Recognition |
+| 7, 8 | 左/右气泵 (MOS驱动) | airbag-hardware |
+| 9, 10 | 左/右电磁阀 (AO3400A) | airbag-hardware |
+| 14, 15, 32 | INMP441 I2S 麦克风 | Snore_Det_esp |
 
 ## 数据合约
 
-严格对齐 `snore_model_output.template.json`：
-- 顶层参数：`window_seconds`, `hop_seconds`, `decision_threshold`
-- Summary 9 字段：`window_count`, `mean_probability`, `max_probability`, `positive_window_count`, `positive_window_ratio`, `positive_duration_seconds`, `positive_duration_minutes`, `snore_detected`, `snore_minutes_per_hour`
+### 鼾声数据 (对齐 `snore_model_output.template.json`)
+- 顶层参数：`window_seconds=5.0`, `hop_seconds=5.0`, `decision_threshold=0.44`
+- Summary 9 字段：`window_count`, `mean_probability`, `max_probability`, `positive_window_count`, `positive_window_ratio`, `positive_duration_seconds/minutes`, `snore_detected`, `snore_minutes_per_hour`
+
+### 睡姿数据 (对齐 Posture_Recognition)
+- `posture`: 枚举 (SUPINE/LEFT_SIDE/RIGHT_SIDE/PRONE/MOVING/NO_HEAD/UNCERTAIN)
+- `confidence`: 0.0~1.0
+- `x_center_cm`: 头部左右偏移 (负=偏左, 正=偏右)
 
 ## 文件说明
 
 | 文件 | 职责 |
 |------|------|
-| `main.c` | FreeRTOS 任务调度，mock 测试数据 |
-| `snore_feature.h` | 数据结构定义（对齐 JSON 模板） |
+| `main.c` | FreeRTOS 任务调度，4 场景 mock 测试 |
+| `snore_feature.h` | 数据结构 (鼾声+睡姿，对齐各分支) |
 | `cloud_llm_client.h/c` | 火山引擎 LLM API 客户端 |
 | `wifi_manager.h/c` | Wi-Fi STA 连接管理 |
-| `pump_controller.h/c` | 气泵 GPIO 控制 |
+| `pump_controller.h/c` | 双气囊 GPIO 控制 (对齐 airbag-hardware) |
 
 ## 配置
-
-使用前需修改以下配置：
 
 1. **Wi-Fi**（`wifi_manager.h`）：
    ```c
@@ -38,21 +72,28 @@
 2. **API Key**（`cloud_llm_client.h`）：
    ```c
    #define VOLCENGINE_API_KEY  "your-api-key-here"
-   #define VOLCENGINE_MODEL    "deepseek-v4-pro-260425"
    ```
 
 ## 编译与烧录
 
 ```bash
-# 设置 ESP-IDF 环境
 . $IDF_PATH/export.sh
-
-# 编译
 idf.py build
-
-# 烧录 + 监控串口
 idf.py -p COMx flash monitor
 ```
+
+## LLM 决策规则
+
+| 鼾声 | 睡姿 | 动作 |
+|------|------|------|
+| 未检测到 | 任意 | hold |
+| 严重 (≥4分/时) | 仰卧 | inflate right (促使左侧卧) |
+| 中等 (2-4分/时) | 仰卧 | inflate right, 低强度 |
+| 轻微 (<2分/时) | 任意 | hold |
+| 严重 | 左侧卧 | inflate left (促使转向) |
+| 严重 | 右侧卧 | inflate right |
+| 任意 | 翻身中 | hold (等待稳定) |
+| 任意 | 头不在枕 | hold |
 
 ## 同学集成方式
 
@@ -61,35 +102,24 @@ idf.py -p COMx flash monitor
 extern QueueHandle_t g_feature_queue;
 
 snore_features_t feat = {
-    .window_seconds         = 5.0,
-    .hop_seconds            = 5.0,
-    .decision_threshold     = 0.46,
-    .window_count           = summary.window_count,
-    .mean_probability       = summary.mean_probability,
-    .max_probability        = summary.max_probability,
-    .positive_window_count  = summary.positive_window_count,
-    .positive_window_ratio  = summary.positive_window_ratio,
-    .positive_duration_seconds = summary.positive_duration_seconds,
-    .positive_duration_minutes = summary.positive_duration_minutes,
-    .snore_detected         = summary.snore_detected,
-    .snore_minutes_per_hour = summary.snore_minutes_per_hour,
+    // 鼾声 (从 Snore_Det_esp 累积)
+    .window_seconds = 5.0, .hop_seconds = 5.0,
+    .decision_threshold = 0.44,
+    .window_count = ..., .mean_probability = ...,
+    .max_probability = ..., .snore_detected = ...,
+    .snore_minutes_per_hour = ...,
+    // 睡姿 (从 Posture_Recognition 获取)
+    .posture = {
+        .posture = POSTURE_SUPINE,
+        .confidence = 0.85,
+        .x_center_cm = 0.12,
+        .y_center_cm = 0.31,
+    },
 };
 xQueueSend(g_feature_queue, &feat, portMAX_DELAY);
 ```
 
-## LLM 决策规则
-
-| 条件 | 动作 |
-|------|------|
-| `snore_detected = false` | hold（保持） |
-| `snore_minutes_per_hour >= 4` | inflate shoulder（促使侧卧） |
-| `snore_minutes_per_hour 2~4` | inflate shoulder, 低强度 30-50 |
-| `snore_minutes_per_hour < 2` | hold（轻微暂不干预） |
-| `max_probability > 0.9 且 ratio > 0.1` | inflate head, 强度 70-80 |
-
-## 测试
-
-项目根目录下 `test_llm_api.py` 可脱离 ESP32 单独测试 API 连通性：
+## API 测试
 
 ```bash
 pip install requests

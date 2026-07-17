@@ -1,8 +1,11 @@
 /**
- * pump_controller.c — 气泵 GPIO 继电器控制
+ * pump_controller.c — 双气囊 GPIO 控制
  *
- * 通过 GPIO 高电平驱动继电器，继电器控制 12V/24V 气泵和电磁阀。
- * 三路独立气泵对应头部/肩部/腰部气囊，一路放气电磁阀。
+ * 对齐 airbag-hardware 分支:
+ *   GPIO7/8 → 左/右气泵 (MOS驱动模块, HIGH=开泵)
+ *   GPIO9/10 → 左/右电磁阀 (AO3400A MOSFET, HIGH=开阀放气)
+ *
+ * 安全约束: 同侧泵+阀禁止同时开启
  */
 #include <string.h>
 #include "driver/gpio.h"
@@ -18,10 +21,10 @@ void pump_controller_init(void)
 {
     /* 配置所有气泵/阀门 GPIO 为推挽输出 */
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << GPIO_PUMP_HEAD)     |
-                        (1ULL << GPIO_PUMP_SHOULDER)  |
-                        (1ULL << GPIO_PUMP_WAIST)     |
-                        (1ULL << GPIO_VALVE_DEFLATE),
+        .pin_bit_mask = (1ULL << GPIO_PUMP_LEFT)   |
+                        (1ULL << GPIO_PUMP_RIGHT)   |
+                        (1ULL << GPIO_VALVE_LEFT)    |
+                        (1ULL << GPIO_VALVE_RIGHT),
         .mode         = GPIO_MODE_OUTPUT,
         .pull_up_en   = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -29,14 +32,54 @@ void pump_controller_init(void)
     };
     ESP_ERROR_CHECK(gpio_config(&io_conf));
 
-    /* 初始状态: 全部关闭（低电平 = 继电器断开） */
-    gpio_set_level(GPIO_PUMP_HEAD,     0);
-    gpio_set_level(GPIO_PUMP_SHOULDER, 0);
-    gpio_set_level(GPIO_PUMP_WAIST,    0);
-    gpio_set_level(GPIO_VALVE_DEFLATE, 0);
+    /* 初始状态: 全部关闭 (LOW = 泵停/阀关) */
+    gpio_set_level(GPIO_PUMP_LEFT,   0);
+    gpio_set_level(GPIO_PUMP_RIGHT,  0);
+    gpio_set_level(GPIO_VALVE_LEFT,  0);
+    gpio_set_level(GPIO_VALVE_RIGHT, 0);
 
-    ESP_LOGI(TAG, "气泵控制器初始化完成 (GPIO: head=%d shoulder=%d waist=%d valve=%d)",
-             GPIO_PUMP_HEAD, GPIO_PUMP_SHOULDER, GPIO_PUMP_WAIST, GPIO_VALVE_DEFLATE);
+    ESP_LOGI(TAG, "双气囊控制器初始化完成");
+    ESP_LOGI(TAG, "  泵: left=GPIO%d right=GPIO%d",
+             GPIO_PUMP_LEFT, GPIO_PUMP_RIGHT);
+    ESP_LOGI(TAG, "  阀: left=GPIO%d right=GPIO%d",
+             GPIO_VALVE_LEFT, GPIO_VALVE_RIGHT);
+}
+
+/* 单侧充气 */
+static void inflate_side(int pump_gpio, int valve_gpio,
+                         const char *side_name,
+                         int intensity, int duration_sec)
+{
+    /* 安全: 确保同侧阀门关闭 */
+    gpio_set_level(valve_gpio, 0);
+
+    ESP_LOGI(TAG, "充气: %s侧 强度=%d%% 持续=%ds", side_name, intensity, duration_sec);
+
+    gpio_set_level(pump_gpio, 1);
+
+    /* intensity 映射为实际充气时间比例 */
+    int actual_ms = duration_sec * intensity * 10;  /* ms */
+    if (actual_ms < 1000) actual_ms = 1000;         /* 最少 1 秒 */
+    vTaskDelay(pdMS_TO_TICKS(actual_ms));
+
+    gpio_set_level(pump_gpio, 0);
+    ESP_LOGI(TAG, "充气完成: %s侧 (实际 %d ms)", side_name, actual_ms);
+}
+
+/* 单侧放气 */
+static void deflate_side(int pump_gpio, int valve_gpio,
+                         const char *side_name, int duration_sec)
+{
+    /* 安全: 确保同侧泵关闭 */
+    gpio_set_level(pump_gpio, 0);
+
+    ESP_LOGI(TAG, "放气: %s侧 持续=%ds", side_name, duration_sec);
+
+    gpio_set_level(valve_gpio, 1);
+    vTaskDelay(pdMS_TO_TICKS(duration_sec * 1000));
+    gpio_set_level(valve_gpio, 0);
+
+    ESP_LOGI(TAG, "放气完成: %s侧", side_name);
 }
 
 void pump_execute_command(const pump_command_t *cmd)
@@ -47,49 +90,50 @@ void pump_execute_command(const pump_command_t *cmd)
         return;
     }
 
-    /* 确定目标区域对应的 GPIO */
-    int gpio_pin = -1;
-    if (strcmp(cmd->zone, "head") == 0) {
-        gpio_pin = GPIO_PUMP_HEAD;
-    } else if (strcmp(cmd->zone, "shoulder") == 0) {
-        gpio_pin = GPIO_PUMP_SHOULDER;
-    } else if (strcmp(cmd->zone, "waist") == 0) {
-        gpio_pin = GPIO_PUMP_WAIST;
-    } else {
-        ESP_LOGW(TAG, "未知区域: %s, 跳过", cmd->zone);
-        return;
-    }
-
     if (strcmp(cmd->action, "inflate") == 0) {
-        /* 充气: 开启对应区域气泵 */
-        ESP_LOGI(TAG, "充气: 区域=%s 强度=%d%% 持续=%ds",
-                 cmd->zone, cmd->intensity, cmd->duration_sec);
+        if (strcmp(cmd->zone, "left") == 0) {
+            inflate_side(GPIO_PUMP_LEFT, GPIO_VALVE_LEFT, "左",
+                        cmd->intensity, cmd->duration_sec);
+        } else if (strcmp(cmd->zone, "right") == 0) {
+            inflate_side(GPIO_PUMP_RIGHT, GPIO_VALVE_RIGHT, "右",
+                        cmd->intensity, cmd->duration_sec);
+        } else if (strcmp(cmd->zone, "both") == 0) {
+            /* 两侧同时充气 */
+            gpio_set_level(GPIO_VALVE_LEFT, 0);
+            gpio_set_level(GPIO_VALVE_RIGHT, 0);
+            gpio_set_level(GPIO_PUMP_LEFT, 1);
+            gpio_set_level(GPIO_PUMP_RIGHT, 1);
 
-        gpio_set_level(gpio_pin, 1);   /* 开泵 */
+            int actual_ms = cmd->duration_sec * cmd->intensity * 10;
+            if (actual_ms < 1000) actual_ms = 1000;
+            vTaskDelay(pdMS_TO_TICKS(actual_ms));
 
-        /*
-         * 简单控制策略: 用占空比模拟强度
-         * intensity 0-100 映射为充气持续时间的比例
-         * 例: intensity=60, duration=15s → 实际充气 9s
-         *
-         * 若需更精确控制，可改用 LEDC PWM 驱动 MOSFET
-         */
-        int actual_ms = cmd->duration_sec * cmd->intensity * 10;  /* ms */
-        if (actual_ms < 1000) actual_ms = 1000;   /* 最少 1 秒 */
-        vTaskDelay(pdMS_TO_TICKS(actual_ms));
-
-        gpio_set_level(gpio_pin, 0);   /* 关泵 */
-        ESP_LOGI(TAG, "充气完成: %s (实际 %d ms)", cmd->zone, actual_ms);
+            gpio_set_level(GPIO_PUMP_LEFT, 0);
+            gpio_set_level(GPIO_PUMP_RIGHT, 0);
+            ESP_LOGI(TAG, "双侧充气完成 (%d ms)", actual_ms);
+        } else {
+            ESP_LOGW(TAG, "未知区域: %s, 跳过", cmd->zone);
+        }
 
     } else if (strcmp(cmd->action, "deflate") == 0) {
-        /* 放气: 开启电磁阀 */
-        ESP_LOGI(TAG, "放气: 区域=%s 持续=%ds", cmd->zone, cmd->duration_sec);
-
-        gpio_set_level(GPIO_VALVE_DEFLATE, 1);   /* 开阀放气 */
-        vTaskDelay(pdMS_TO_TICKS(cmd->duration_sec * 1000));
-        gpio_set_level(GPIO_VALVE_DEFLATE, 0);   /* 关阀 */
-
-        ESP_LOGI(TAG, "放气完成");
+        if (strcmp(cmd->zone, "left") == 0) {
+            deflate_side(GPIO_PUMP_LEFT, GPIO_VALVE_LEFT, "左",
+                        cmd->duration_sec);
+        } else if (strcmp(cmd->zone, "right") == 0) {
+            deflate_side(GPIO_PUMP_RIGHT, GPIO_VALVE_RIGHT, "右",
+                        cmd->duration_sec);
+        } else if (strcmp(cmd->zone, "both") == 0) {
+            gpio_set_level(GPIO_PUMP_LEFT, 0);
+            gpio_set_level(GPIO_PUMP_RIGHT, 0);
+            gpio_set_level(GPIO_VALVE_LEFT, 1);
+            gpio_set_level(GPIO_VALVE_RIGHT, 1);
+            vTaskDelay(pdMS_TO_TICKS(cmd->duration_sec * 1000));
+            gpio_set_level(GPIO_VALVE_LEFT, 0);
+            gpio_set_level(GPIO_VALVE_RIGHT, 0);
+            ESP_LOGI(TAG, "双侧放气完成");
+        } else {
+            ESP_LOGW(TAG, "未知区域: %s, 跳过", cmd->zone);
+        }
 
     } else {
         ESP_LOGW(TAG, "未知动作: %s", cmd->action);

@@ -1,18 +1,16 @@
 /**
  * cloud_llm_client.c — 火山引擎边缘智能 API 客户端
  *
- * 严格对齐 snore_model_output.template.json:
- *   - summary 字段: window_count, mean_probability, max_probability,
- *     positive_window_count, positive_window_ratio,
- *     positive_duration_seconds/minutes, snore_detected, snore_minutes_per_hour
- *   - 顶层参数: window_seconds, hop_seconds, decision_threshold
- *   - 不包含 events、设备信息、患者ID 等业务字段
+ * 全流程整合:
+ *   - 鼾声数据: Snore_Det_esp 分支 (INMP441 → 模型推理 → summary)
+ *   - 睡姿数据: Posture_Recognition 分支 (FSR×3 → 规则分类)
+ *   - 气泵控制: airbag-hardware 分支 (左/右独立, GPIO7/8/9/10)
  *
  * 核心职责：
- *   1. 将 snore_features_t 格式化为结构化文本
+ *   1. 将 snore_features_t (鼾声+睡姿) 格式化为结构化文本
  *   2. 构造 OpenAI 兼容 JSON 请求体
  *   3. HTTPS POST 到火山引擎
- *   4. 解析双层 JSON 响应 (OpenAI 信封 → LLM 内容)
+ *   4. 解析双层 JSON 响应 (OpenAI 信封 → LLM 内容 JSON)
  */
 #include <string.h>
 #include <stdio.h>
@@ -31,29 +29,41 @@ static const char *TAG = "CLOUD_LLM";
 
 /* ── System Prompt ──────────────────────────────────── */
 static const char *SYSTEM_PROMPT =
-    "你是专业的睡眠健康分析AI。根据用户提供的鼾声模型输出数据，完成两项任务：\n"
+    "你是专业的睡眠健康分析AI。根据用户提供的鼾声模型输出和睡姿传感器数据，完成两项任务：\n"
     "1. 输出睡眠分析报告（中文，100字左右）\n"
     "2. 输出气泵控制指令\n\n"
     "你必须严格按照以下JSON格式回复，不要附加任何其他文本：\n"
     "{\"report\":\"分析报告文本\","
     "\"command\":{\"action\":\"inflate|deflate|hold\","
-    "\"zone\":\"head|shoulder|waist\","
+    "\"zone\":\"left|right|both\","
     "\"intensity\":0到100的整数,"
     "\"duration_sec\":5到30的整数}}\n\n"
-    "数据说明：\n"
-    "- mean_probability: 所有时间窗的平均鼾声概率（最接近模型直接输出）\n"
-    "- max_probability: 所有时间窗中的最大鼾声概率\n"
-    "- positive_window_count: 概率超过阈值的正窗口数\n"
-    "- positive_window_ratio: 正窗口占比\n"
-    "- snore_detected: 是否存在至少一个正窗口\n"
+    "硬件说明：\n"
+    "- 枕头内置左/右两个独立气囊，可分别充气/放气\n"
+    "- 充气某一侧会抬高该侧，促使用户头部偏向另一侧\n"
+    "- zone=left 充气左侧气囊, zone=right 充气右侧气囊, zone=both 双侧同时\n\n"
+    "鼾声数据说明：\n"
+    "- mean_probability: 所有时间窗的平均鼾声概率\n"
+    "- max_probability: 最大鼾声概率\n"
+    "- positive_window_ratio: 正窗口(概率超阈值)占比\n"
+    "- snore_detected: 是否检测到鼾声\n"
     "- snore_minutes_per_hour: 每小时鼾声分钟数\n\n"
+    "睡姿数据说明：\n"
+    "- posture: 当前睡姿 (SUPINE=仰卧, LEFT_SIDE=左侧卧, RIGHT_SIDE=右侧卧, PRONE=俯卧, MOVING=翻身中, NO_HEAD=不在枕上)\n"
+    "- confidence: 睡姿判定置信度 (0-1)\n"
+    "- x_center_cm: 头部左右偏移 (负=偏左, 正=偏右)\n\n"
     "决策规则：\n"
-    "- snore_detected=false → action=hold（保持当前状态）\n"
-    "- snore_detected=true 且 snore_minutes_per_hour>=4 → action=inflate, zone=shoulder（促使侧卧，鼾声较严重）\n"
-    "- snore_detected=true 且 snore_minutes_per_hour 2-4 → action=inflate, zone=shoulder, intensity较低(30-50)\n"
-    "- snore_detected=true 且 snore_minutes_per_hour<2 → action=hold（轻微，暂不干预）\n"
-    "- max_probability>0.9 且 positive_window_ratio>0.1 → 鼾声非常严重，zone=head（抬高头部），intensity 70-80\n"
-    "- intensity 根据 mean_probability 和 snore_minutes_per_hour 在 30-80 区间调节\n"
+    "- snore_detected=false → action=hold\n"
+    "- 仰卧(SUPINE) + 鼾声严重(snore_minutes_per_hour>=4) → action=inflate, zone=right（充气右侧促使左侧卧），intensity 60-80\n"
+    "- 仰卧 + 鼾声中等(2-4分钟/时) → action=inflate, zone=right, intensity 30-50\n"
+    "- 仰卧 + 鼾声轻微(<2分钟/时) → action=hold\n"
+    "- 左侧卧 + 鼾声严重 → action=inflate, zone=left（充气左侧促使右侧卧或仰卧），intensity 50-70\n"
+    "- 右侧卧 + 鼾声严重 → action=inflate, zone=right（充气右侧促使左侧卧），intensity 50-70\n"
+    "- max_probability>0.9 且 positive_window_ratio>0.1 → 鼾声非常严重，intensity 70-80\n"
+    "- 翻身中(MOVING) → action=hold（等待稳定）\n"
+    "- 俯卧(PRONE) → action=hold（俯卧通常不鼾）\n"
+    "- 头不在枕上(NO_HEAD) → action=hold\n"
+    "- confidence<0.5 → 睡姿不确定，保守处理，降低 intensity\n"
     "- duration_sec 按 intensity 比例在 5-20 秒区间调节";
 
 /* ────────────────────────────────────────────────────
@@ -94,7 +104,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 }
 
 /* ────────────────────────────────────────────────────
- *  构造请求 JSON — 对齐 snore_model_output.template.json
+ *  构造请求 JSON — 鼾声 + 睡姿综合数据
  * ──────────────────────────────────────────────────── */
 static char *build_request_json(const snore_features_t *feat)
 {
@@ -113,23 +123,23 @@ static char *build_request_json(const snore_features_t *feat)
     cJSON_AddStringToObject(sys_msg, "content", SYSTEM_PROMPT);
     cJSON_AddItemToArray(messages, sys_msg);
 
-    /* User 消息 — 填入 summary 数据 */
-    char user_content[512];
+    /* User 消息 — 鼾声 + 睡姿 */
+    char user_content[768];
     snprintf(user_content, sizeof(user_content),
-        "鼾声模型输出（snore_model_output.template.json 格式）：\n\n"
-        "【参数】\n"
-        "窗口时长: %.1f 秒\n"
-        "步长: %.1f 秒\n"
-        "决策阈值: %.4f\n\n"
-        "【Summary 统计】\n"
+        "传感器综合数据：\n\n"
+        "【鼾声检测】(Snore_Det_esp: INMP441麦克风 → PhysicsSnoreEdgeModel)\n"
+        "窗口: %.1f秒, 步长: %.1f秒, 阈值: %.4f\n"
         "是否检测到鼾声: %s\n"
         "窗口总数: %d\n"
-        "平均鼾声概率(mean_probability): %.4f\n"
-        "最大鼾声概率(max_probability): %.4f\n"
-        "正窗口数: %d\n"
-        "正窗口占比: %.4f (%.2f%%)\n"
-        "鼾声累计时长: %.1f 秒 (%.1f 分钟)\n"
-        "每小时鼾声分钟数: %.2f\n",
+        "平均鼾声概率: %.4f\n"
+        "最大鼾声概率: %.4f\n"
+        "正窗口: %d/%d (占比%.4f, %.2f%%)\n"
+        "鼾声累计: %.1f秒 (%.1f分钟)\n"
+        "每小时鼾声: %.2f 分钟\n\n"
+        "【睡姿识别】(Posture_Recognition: FSR×3压力传感器)\n"
+        "当前睡姿: %s (%s)\n"
+        "置信度: %.2f\n"
+        "头部偏移: X=%.2fcm (负=偏左, 正=偏右), Y=%.2fcm\n",
         feat->window_seconds,
         feat->hop_seconds,
         feat->decision_threshold,
@@ -137,12 +147,17 @@ static char *build_request_json(const snore_features_t *feat)
         feat->window_count,
         feat->mean_probability,
         feat->max_probability,
-        feat->positive_window_count,
+        feat->positive_window_count, feat->window_count,
         feat->positive_window_ratio,
         feat->positive_window_ratio * 100.0f,
         feat->positive_duration_seconds,
         feat->positive_duration_minutes,
-        feat->snore_minutes_per_hour);
+        feat->snore_minutes_per_hour,
+        posture_name(feat->posture.posture),
+        posture_name_cn(feat->posture.posture),
+        feat->posture.confidence,
+        feat->posture.x_center_cm,
+        feat->posture.y_center_cm);
 
     cJSON *user_msg = cJSON_CreateObject();
     cJSON_AddStringToObject(user_msg, "role", "user");
@@ -237,7 +252,7 @@ static int parse_response_json(const char *response_body,
         if (cJSON_IsString(zone)) {
             strncpy(cmd_out->zone, zone->valuestring, sizeof(cmd_out->zone) - 1);
         } else {
-            strncpy(cmd_out->zone, "head", sizeof(cmd_out->zone) - 1);
+            strncpy(cmd_out->zone, "right", sizeof(cmd_out->zone) - 1);
         }
 
         cmd_out->intensity    = cJSON_IsNumber(inten) ? inten->valueint : 0;
@@ -251,7 +266,7 @@ static int parse_response_json(const char *response_body,
         ret = 0;
     } else {
         strncpy(cmd_out->action, "hold", sizeof(cmd_out->action) - 1);
-        strncpy(cmd_out->zone, "head", sizeof(cmd_out->zone) - 1);
+        strncpy(cmd_out->zone, "right", sizeof(cmd_out->zone) - 1);
         cmd_out->intensity = 0;
         cmd_out->duration_sec = 0;
         ret = 0;

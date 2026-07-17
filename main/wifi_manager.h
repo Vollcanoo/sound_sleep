@@ -7,8 +7,8 @@
 #include "esp_err.h"
 
 /* Wi-Fi 配置 — 根据实际路由器修改 */
-#define WIFI_SSID       "OnePlus 12 from C137"
-#define WIFI_PASSWORD   "062627Li!"
+#define WIFI_SSID       "your-wifi-ssid"      // 替换为你的 WiFi 名称 (仅 2.4GHz)
+#define WIFI_PASSWORD   "your-wifi-password"  // 替换为你的 WiFi 密码
 #define WIFI_MAX_RETRY  10
 
 /**

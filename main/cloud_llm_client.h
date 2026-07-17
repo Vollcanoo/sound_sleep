@@ -18,19 +18,27 @@
 
 /**
  * 气泵控制指令 — 从云端 LLM 响应中解析出
+ *
+ * 对齐 airbag-hardware 分支:
+ *   zone: "left" / "right" / "both" (双气囊左右独立)
+ *   action: "inflate" / "deflate" / "hold"
  */
 typedef struct {
-    char action[16];      // "inflate" = 充气, "deflate" = 放气, "hold" = 保持
-    char zone[16];        // "head" = 头部, "shoulder" = 肩部, "waist" = 腰部
-    int  intensity;       // 强度 0-100
-    int  duration_sec;    // 动作持续时间 (秒)
+    char action[16];      /* "inflate" = 充气, "deflate" = 放气, "hold" = 保持 */
+    char zone[16];        /* "left" = 左侧, "right" = 右侧, "both" = 双侧 */
+    int  intensity;       /* 强度 0-100 */
+    int  duration_sec;    /* 动作持续时间 (秒) */
 } pump_command_t;
 
 /**
- * 将鼾声模型输出 (对齐 snore_model_output.template.json) 发送给云端 LLM，
- * 获取睡眠分析报告和气泵控制指令。
+ * 将鼾声+睡姿综合数据发送给云端 LLM，获取睡眠分析报告和气泵控制指令。
  *
- * @param feat        输入: 模型输出 summary (9 个统计字段 + 3 个顶层参数)
+ * 数据来源:
+ *   - 鼾声: Snore_Det_esp 分支 (INMP441 → PhysicsSnoreEdgeModel → probability)
+ *   - 睡姿: Posture_Recognition 分支 (FSR×3 → 规则分类 → posture + confidence)
+ *   - 气泵: airbag-hardware 分支 (左/右独立气泵+电磁阀, GPIO7/8/9/10)
+ *
+ * @param feat        输入: 鼾声模型输出 + 睡姿数据
  * @param report_out  输出: 睡眠分析报告文本缓冲区
  * @param report_size 输出缓冲区大小
  * @param cmd_out     输出: 解析出的气泵控制指令
