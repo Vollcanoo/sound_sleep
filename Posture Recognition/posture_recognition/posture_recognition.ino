@@ -34,8 +34,14 @@
 #define FORCE_SENSOR_CENTER_PIN 5
 #define FORCE_SENSOR_RIGHT_PIN 6
 
+// Per channel: 3.3V -> FSR -> ADC pin -> 2k ohm -> GND.
+// This makes the ADC reading rise as pressure lowers the FSR resistance.
+const int FSR_PULLDOWN_OHMS = 2000;
 const bool PRESSURE_INCREASES_WITH_FORCE = true;
 const bool MIRROR_LEFT_RIGHT = false;
+
+const int ADC_NEAR_GROUND = 5;
+const int ADC_NEAR_3V3 = 4090;
 
 const unsigned long SAMPLE_INTERVAL_MS = 100;   // 10 Hz raw sampling
 const unsigned long OUTPUT_INTERVAL_MS = 1000;  // 1 Hz posture output
@@ -216,6 +222,22 @@ void calibrateBaseline() {
   Serial.print(baselineCenter, 1);
   Serial.print(',');
   Serial.println(baselineRight, 1);
+
+  if (
+    baselineLeft >= ADC_NEAR_3V3 ||
+    baselineCenter >= ADC_NEAR_3V3 ||
+    baselineRight >= ADC_NEAR_3V3
+  ) {
+    Serial.println("WARNING: ADC near 4095. Check that the FSR signal node is not tied to 3.3V.");
+  }
+
+  if (
+    baselineLeft <= ADC_NEAR_GROUND &&
+    baselineCenter <= ADC_NEAR_GROUND &&
+    baselineRight <= ADC_NEAR_GROUND
+  ) {
+    Serial.println("INFO: All channels are near 0 while unloaded. Press each FSR to confirm its raw value rises.");
+  }
 }
 
 SensorRaw readRawSensors() {
