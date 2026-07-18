@@ -5,9 +5,12 @@ import 'app.dart';
 import 'services/auth_service.dart';
 import 'services/sleep_service.dart';
 import 'services/device_service.dart';
+import 'services/ble_data_service.dart';
+import 'services/snore_api_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/sleep_provider.dart';
 import 'providers/device_provider.dart';
+import 'providers/realtime_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,12 +26,21 @@ class AppBootstrap extends StatelessWidget {
     final authService = AuthService();
     final sleepService = SleepService();
     final deviceService = DeviceService();
+    final bleDataService = BleDataService();
+    final snoreApiService = SnoreApiService();
 
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider(authService)),
         ChangeNotifierProvider(create: (_) => SleepProvider(sleepService)),
         ChangeNotifierProvider(create: (_) => DeviceProvider(deviceService)),
+        ChangeNotifierProvider(
+          create: (_) => RealtimeProvider(
+            bleService: bleDataService,
+            snoreService: snoreApiService,
+            sleepService: sleepService,
+          ),
+        ),
       ],
       child: const SleepApp(),
     );

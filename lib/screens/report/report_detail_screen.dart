@@ -7,6 +7,7 @@ import '../../models/sleep_record.dart';
 import '../../widgets/sleep_score_ring.dart';
 import '../../widgets/sleep_stage_chart.dart';
 import '../../widgets/snoring_chart.dart';
+import '../../widgets/posture_chart.dart';
 
 class ReportDetailScreen extends StatefulWidget {
   final String recordId;
@@ -125,6 +126,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 16),
+
+            // ── 睡姿分布 ──
+            _buildPostureSection(record),
             const SizedBox(height: 16),
 
             // ── 数据统计 2x2 ──
@@ -492,6 +497,59 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       ],
     );
   }
+  /// ── 睡姿分布区域 ──
+  Widget _buildPostureSection(SleepRecord record) {
+    final hasPostureData = record.postureSegments.isNotEmpty;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            child: Row(
+              children: [
+                const _SectionTitle(
+                  icon: Icons.airline_seat_flat,
+                  title: '睡姿分布',
+                ),
+                const Spacer(),
+                if (hasPostureData)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '主要睡姿：${record.dominantPostureLabel}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.primaryBlue,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: PostureChart(
+              distribution: record.postureDistribution,
+              totalMinutes: record.postureSegments.fold(
+                0,
+                (sum, seg) => sum + seg.durationMinutes,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 }
 
 // ── 子组件 ──

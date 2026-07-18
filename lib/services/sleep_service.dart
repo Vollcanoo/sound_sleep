@@ -185,4 +185,9 @@ class SleepService {
       ..sort((a, b) => b.date.compareTo(a.date));
     return sorted.first;
   }
+
+  /// 添加一条真实传感器生成的睡眠记录
+  void addRecord(SleepRecord record) {
+    _records.add(record);
+  }
 }

@@ -1,13 +1,17 @@
+import 'posture_event.dart';
+
 /// 打鼾事件
 class SnoringEvent {
   final DateTime startTime;
   final DateTime endTime;
   final double avgDecibel;
+  final double? avgProbability; // ML 管线输出的置信概率
 
   SnoringEvent({
     required this.startTime,
     required this.endTime,
     required this.avgDecibel,
+    this.avgProbability,
   });
 
   int get durationMinutes => endTime.difference(startTime).inMinutes;
@@ -59,6 +63,7 @@ class SleepRecord {
   final int sleepScore;     // 0-100
   final List<SnoringEvent> snoringEvents;
   final List<PressureSegment> pressureSegments; // 各段有压力的时间片段
+  final List<PostureSegment> postureSegments;   // 各段姿态数据
   final int getUpCount;     // 夜间起身次数
   AiAnalysis? aiAnalysis;   // 云端 LLM 分析结果（可为 null，异步获取）
 
@@ -71,6 +76,7 @@ class SleepRecord {
     required this.sleepScore,
     this.snoringEvents = const [],
     this.pressureSegments = const [],
+    this.postureSegments = const [],
     this.getUpCount = 0,
     this.aiAnalysis,
   });
@@ -110,5 +116,24 @@ class SleepRecord {
     if (sleepScore >= 75) return '良好';
     if (sleepScore >= 60) return '一般';
     return '较差';
+  }
+
+  /// 各姿态的累计时长（分钟）
+  Map<PostureType, int> get postureDistribution {
+    final dist = <PostureType, int>{};
+    for (final seg in postureSegments) {
+      dist[seg.posture] = (dist[seg.posture] ?? 0) + seg.durationMinutes;
+    }
+    return dist;
+  }
+
+  /// 占比最大的姿态（中文标签）
+  String get dominantPostureLabel {
+    if (postureSegments.isEmpty) return '无数据';
+    final dist = postureDistribution;
+    final dominant = dist.entries.reduce(
+      (a, b) => a.value >= b.value ? a : b,
+    );
+    return dominant.key.label;
   }
 }
