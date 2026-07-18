@@ -1,8 +1,3 @@
-"""
-test_llm_api.py - Test VolcEngine LLM API without ESP32
-Usage: pip install requests && python test_llm_api.py
-"""
-
 import json
 import requests
 
