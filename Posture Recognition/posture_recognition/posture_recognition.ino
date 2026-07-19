@@ -6,7 +6,8 @@
   1. Do not classify from one instant sample. Use a short window median.
   2. Reject unstable/motion windows before classifying posture.
   3. Use normalized pressure distribution instead of absolute ADC values.
-  4. With only three FSRs, left/right/supine are feasible; prone is weak.
+  4. With only three FSRs, classify no head, motion, left side, right side,
+     or supine. Prone is intentionally excluded.
 
   Recommended placement on a 15 cm x 15 cm pillow:
 
@@ -16,16 +17,10 @@
     [LEFT]       [RIGHT]
       Front / shoulder side
 
-  Approximate positions:
-  - LEFT:   x = -5 cm, y = -2 cm
-  - CENTER: x =  0 cm, y = +2 cm
-  - RIGHT:  x = +5 cm, y = -2 cm
-
-  This is still a left/center/right three-sensor layout, but the center sensor
-  is shifted slightly toward the back/head side. The small front/back offset
-  gives a weak cue for supine vs prone. If all three sensors are exactly on one
-  horizontal line, the program can still classify left/right/centered pressure,
-  but it cannot reliably separate supine from prone.
+  Approximate left-to-right positions:
+  - LEFT:   x = -5 cm
+  - CENTER: x =  0 cm
+  - RIGHT:  x = +5 cm
 */
 
 #include <math.h>
@@ -36,7 +31,6 @@
 
 // Per channel: 3.3V -> FSR -> ADC pin -> 2k ohm -> GND.
 // This makes the ADC reading rise as pressure lowers the FSR resistance.
-const int FSR_PULLDOWN_OHMS = 2000;
 const bool PRESSURE_INCREASES_WITH_FORCE = true;
 const bool MIRROR_LEFT_RIGHT = false;
 
@@ -53,30 +47,19 @@ const float SENSOR_X_LEFT_CM = -5.0f;
 const float SENSOR_X_CENTER_CM = 0.0f;
 const float SENSOR_X_RIGHT_CM = 5.0f;
 
-const float SENSOR_Y_LEFT_CM = -2.0f;
-const float SENSOR_Y_CENTER_CM = 2.0f;
-const float SENSOR_Y_RIGHT_CM = -2.0f;
-
 const float NO_HEAD_TOTAL_THRESHOLD = 180.0f;
 const float MOVEMENT_RANGE_RATIO_THRESHOLD = 0.35f;
 const float MOVEMENT_TOTAL_RANGE_THRESHOLD = 220.0f;
 
 const float SIDE_X_THRESHOLD_CM = 1.35f;
 const float SIDE_DOMINANT_RATIO = 0.42f;
-const float CENTER_X_MAX_CM = 1.20f;
-const float SUPINE_CENTER_MIN_RATIO = 0.34f;
-const float SUPINE_Y_MIN_CM = -0.15f;
-const float PRONE_Y_MAX_CM = -0.75f;
-const float PRONE_LR_BALANCE_MAX = 0.32f;
 
 enum Posture {
   POSTURE_NO_HEAD,
   POSTURE_MOVING,
   POSTURE_LEFT_SIDE,
   POSTURE_RIGHT_SIDE,
-  POSTURE_SUPINE,
-  POSTURE_PRONE,
-  POSTURE_UNCERTAIN
+  POSTURE_SUPINE
 };
 
 struct SensorRaw {
@@ -100,8 +83,6 @@ struct Features {
   float centerRatio;
   float rightRatio;
   float xCenterCm;
-  float yCenterCm;
-  float lrBalance;
   bool moving;
 };
 
@@ -187,11 +168,8 @@ const char* postureName(Posture posture) {
     case POSTURE_RIGHT_SIDE:
       return "RIGHT_SIDE";
     case POSTURE_SUPINE:
-      return "SUPINE";
-    case POSTURE_PRONE:
-      return "PRONE";
     default:
-      return "UNCERTAIN";
+      return "SUPINE";
   }
 }
 
@@ -294,14 +272,6 @@ Features calculateFeatures(const WindowStats& stats) {
     stats.right * SENSOR_X_RIGHT_CM
   ) / maxFloat(features.total, 1.0f);
 
-  features.yCenterCm = (
-    stats.left * SENSOR_Y_LEFT_CM +
-    stats.center * SENSOR_Y_CENTER_CM +
-    stats.right * SENSOR_Y_RIGHT_CM
-  ) / maxFloat(features.total, 1.0f);
-
-  features.lrBalance = absFloat(stats.left - stats.right) / maxFloat(stats.left + stats.right, 1.0f);
-
   const float maxRange = maxFloat(stats.leftRange, maxFloat(stats.centerRange, stats.rightRange));
   features.moving = (
     maxRange > MOVEMENT_TOTAL_RANGE_THRESHOLD &&
@@ -340,26 +310,9 @@ Posture classifyPosture(const Features& features, float* confidence) {
     return POSTURE_RIGHT_SIDE;
   }
 
-  if (
-    absFloat(features.xCenterCm) <= CENTER_X_MAX_CM &&
-    features.centerRatio >= SUPINE_CENTER_MIN_RATIO &&
-    features.yCenterCm >= SUPINE_Y_MIN_CM
-  ) {
-    *confidence = clampFloat(0.50f + features.centerRatio, 0.0f, 0.90f);
-    return POSTURE_SUPINE;
-  }
-
-  if (
-    absFloat(features.xCenterCm) <= CENTER_X_MAX_CM &&
-    features.yCenterCm <= PRONE_Y_MAX_CM &&
-    features.lrBalance <= PRONE_LR_BALANCE_MAX
-  ) {
-    *confidence = 0.45f;
-    return POSTURE_PRONE;
-  }
-
-  *confidence = 0.35f;
-  return POSTURE_UNCERTAIN;
+  // Any stable head-pressure distribution that is not lateral is treated as supine.
+  *confidence = clampFloat(0.55f + features.centerRatio * 0.35f, 0.0f, 0.90f);
+  return POSTURE_SUPINE;
 }
 
 void printOutput(const SensorRaw& raw, const WindowStats& stats, const Features& features) {
@@ -388,8 +341,6 @@ void printOutput(const SensorRaw& raw, const WindowStats& stats, const Features&
   Serial.print(',');
   Serial.print(features.xCenterCm, 2);
   Serial.print(',');
-  Serial.print(features.yCenterCm, 2);
-  Serial.print(',');
   Serial.print(features.moving ? 1 : 0);
   Serial.print(',');
   Serial.print(postureName(posture));
@@ -405,7 +356,7 @@ void handleSerialCommand() {
   const char command = Serial.read();
   if (command == 'b' || command == 'B') {
     calibrateBaseline();
-    Serial.println("raw_left,raw_center,raw_right,median_pressure_left,median_pressure_center,median_pressure_right,total_pressure,left_ratio,center_ratio,right_ratio,x_center_cm,y_center_cm,moving,posture,confidence");
+    Serial.println("raw_left,raw_center,raw_right,median_pressure_left,median_pressure_center,median_pressure_right,total_pressure,left_ratio,center_ratio,right_ratio,x_center_cm,moving,posture,confidence");
   }
 }
 
@@ -420,7 +371,7 @@ void setup() {
 
   calibrateBaseline();
 
-  Serial.println("raw_left,raw_center,raw_right,median_pressure_left,median_pressure_center,median_pressure_right,total_pressure,left_ratio,center_ratio,right_ratio,x_center_cm,y_center_cm,moving,posture,confidence");
+  Serial.println("raw_left,raw_center,raw_right,median_pressure_left,median_pressure_center,median_pressure_right,total_pressure,left_ratio,center_ratio,right_ratio,x_center_cm,moving,posture,confidence");
 }
 
 void loop() {
