@@ -1,12 +1,20 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import '../models/sleep_record.dart';
+import '../config/cloudbase_config.dart';
+import 'cloud_sync_service.dart';
 
 class SleepService {
   final List<SleepRecord> _records = [];
   final _random = Random(42); // Fixed seed for consistent data
+  CloudSyncService? _cloudSync;
 
   SleepService() {
     _generateMockData();
+  }
+
+  void setCloudSync(CloudSyncService sync) {
+    _cloudSync = sync;
   }
 
   /// 模拟报告生成逻辑：
@@ -189,5 +197,10 @@ class SleepService {
   /// 添加一条真实传感器生成的睡眠记录
   void addRecord(SleepRecord record) {
     _records.add(record);
+    if (CloudBaseConfig.isConfigured && _cloudSync != null) {
+      _cloudSync!.uploadSleepRecord(record).catchError((e) {
+        debugPrint('[SleepService] 后台上传失败: $e');
+      });
+    }
   }
 }

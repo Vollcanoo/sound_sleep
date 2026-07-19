@@ -7,6 +7,7 @@ import 'services/sleep_service.dart';
 import 'services/device_service.dart';
 import 'services/ble_data_service.dart';
 import 'services/snore_api_service.dart';
+import 'services/cloud_sync_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/sleep_provider.dart';
 import 'providers/device_provider.dart';
@@ -28,11 +29,16 @@ class AppBootstrap extends StatelessWidget {
     final deviceService = DeviceService();
     final bleDataService = BleDataService();
     final snoreApiService = SnoreApiService();
+    final cloudSyncService = CloudSyncService();
+
+    sleepService.setCloudSync(cloudSyncService);
 
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider(authService)),
-        ChangeNotifierProvider(create: (_) => SleepProvider(sleepService)),
+        ChangeNotifierProvider(
+          create: (_) => SleepProvider(sleepService, cloudSyncService),
+        ),
         ChangeNotifierProvider(create: (_) => DeviceProvider(deviceService)),
         ChangeNotifierProvider(
           create: (_) => RealtimeProvider(

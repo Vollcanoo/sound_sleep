@@ -1,12 +1,10 @@
 import '../models/user.dart';
 
 class AuthService {
-  // In-memory user store: username -> {password, User}
   final Map<String, _UserEntry> _users = {};
   User? _currentUser;
 
   AuthService() {
-    // Pre-load test account
     final testUser = User(
       id: 'user_001',
       username: 'test',
@@ -25,7 +23,7 @@ class AuthService {
   bool get isLoggedIn => _currentUser != null;
 
   Future<User> login(String username, String password) async {
-    await Future.delayed(const Duration(milliseconds: 800)); // Simulate network
+    await Future.delayed(const Duration(milliseconds: 800));
     final entry = _users[username];
     if (entry == null || entry.password != password) {
       throw Exception('用户名或密码错误');
@@ -57,7 +55,6 @@ class AuthService {
   }
 
   Future<void> logout() async {
-    await Future.delayed(const Duration(milliseconds: 300));
     _currentUser = null;
   }
 
@@ -65,7 +62,8 @@ class AuthService {
     await Future.delayed(const Duration(milliseconds: 500));
     final entry = _users[updatedUser.username];
     if (entry != null) {
-      _users[updatedUser.username] = _UserEntry(password: entry.password, user: updatedUser);
+      _users[updatedUser.username] =
+          _UserEntry(password: entry.password, user: updatedUser);
     }
     _currentUser = updatedUser;
     return updatedUser;
