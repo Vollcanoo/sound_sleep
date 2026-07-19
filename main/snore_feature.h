@@ -26,12 +26,23 @@ typedef enum {
 
 /**
  * 睡姿数据 — 从 Posture_Recognition 分支获取
+ *
+ * 前 6 个字段 (raw/median) 同时用于 BLE CSV 输出给手机 App。
+ * 对齐 frontier 分支 PostureReading.fromCsv() 的 15 列格式。
  */
 typedef struct {
     posture_t posture;           /* 睡姿分类 */
     float     confidence;        /* 分类置信度 0.0-1.0 */
     float     x_center_cm;       /* 压力重心 X 偏移 (cm), 负=偏左, 正=偏右 */
     float     y_center_cm;       /* 压力重心 Y 偏移 (cm), 正=偏头侧, 负=偏肩侧 */
+
+    /* ── BLE CSV 所需的压力传感器原始/滤波值 ─── */
+    int       raw_left;          /* FSR 左 ADC 原始值 (0-4095) */
+    int       raw_center;        /* FSR 中 ADC 原始值 */
+    int       raw_right;         /* FSR 右 ADC 原始值 */
+    float     median_left;       /* 中值滤波后 左 */
+    float     median_center;     /* 中值滤波后 中 */
+    float     median_right;      /* 中值滤波后 右 */
 } posture_data_t;
 
 /**

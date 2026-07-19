@@ -1,6 +1,6 @@
 # ESP32 智能防鼾睡姿调节系统 — 云端 LLM 分析模块
 
-基于 ESP32-S3 + FreeRTOS + 火山引擎大模型 API 的智能防鼾系统。整合鼾声检测、睡姿识别和气囊控制，通过云端 LLM 分析生成个性化调节指令。
+基于 ESP32-S3 + FreeRTOS + 火山引擎大模型 API + NimBLE 的智能防鼾系统。整合鼾声检测、睡姿识别、气囊控制和 BLE 手机通信，通过云端 LLM 分析生成个性化调节指令。
 
 ## 系统全流程
 
@@ -19,16 +19,18 @@
          │  FreeRTOS Queue      │
          │  → 云端 LLM 分析     │
          │  → 气泵控制指令      │
-         └──────────┬───────────┘
-                    ▼
-         ┌──────────────────────┐
-         │  airbag-hardware     │
-         │  左气泵 GPIO7        │
-         │  右气泵 GPIO8        │
-         │  左阀门 GPIO9        │
-         │  右阀门 GPIO10       │
-         │  → 枕头高度调节      │
-         └──────────────────────┘
+         │  → BLE 推送手机      │
+         └───────┬──────┬───────┘
+                 │      │
+                 ▼      ▼
+┌────────────────────┐  ┌──────────────────────────┐
+│  airbag-hardware   │  │  frontier (手机App)      │
+│  左气泵 GPIO7      │  │  Flutter + BLE 接收      │
+│  右气泵 GPIO8      │  │  → 实时姿态/鼾声显示    │
+│  左阀门 GPIO9      │  │  → 睡眠报告生成         │
+│  右阀门 GPIO10     │  │  → (可选)上传云端存储    │
+│  → 枕头高度调节    │  └──────────────────────────┘
+└────────────────────┘
 ```
 
 ## GPIO 分配总览
@@ -55,11 +57,12 @@
 
 | 文件 | 职责 |
 |------|------|
-| `main.c` | FreeRTOS 任务调度，4 场景 mock 测试 |
-| `snore_feature.h` | 数据结构 (鼾声+睡姿，对齐各分支) |
+| `main.c` | FreeRTOS 任务调度，BLE CSV 发送，4 场景 mock 测试 |
+| `snore_feature.h` | 数据结构 (鼾声+睡姿+压力原始值，对齐各分支) |
 | `cloud_llm_client.h/c` | 火山引擎 LLM API 客户端 |
 | `wifi_manager.h/c` | Wi-Fi STA 连接管理 |
 | `pump_controller.h/c` | 双气囊 GPIO 控制 (对齐 airbag-hardware) |
+| `ble_uart_server.h/c` | NimBLE GATT Server (对齐 frontier App BleDataService) |
 
 ## 配置
 
@@ -129,5 +132,35 @@ python test_llm_api.py
 ## 依赖
 
 - ESP-IDF v5.5.2
-- ESP32-S3 开发板
+- ESP32-S3 开发板 (需支持 WiFi + BLE 共存)
 - 火山引擎边缘智能 API
+- frontier 分支 Flutter App (BLE 客户端)
+
+## BLE 通信协议 (对接 frontier App)
+
+### Nordic UART Service
+
+| 角色 | UUID |
+|------|------|
+| Service | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
+| TX (ESP32→手机 Notify) | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
+| RX (手机→ESP32 Write) | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
+
+### CSV 数据格式 (15 字段, '\n' 结尾)
+
+```
+raw_left,raw_center,raw_right,median_left,median_center,median_right,total,left_ratio,center_ratio,right_ratio,x_cm,y_cm,moving,posture,confidence
+```
+
+示例: `320,650,310,315.0,645.0,305.0,1265.0,0.2490,0.5099,0.2411,0.12,0.31,0,SUPINE,0.8200`
+
+### App 显示内容
+
+- 当前姿态 (仰卧/左侧卧/右侧卧/...)
+- 在床状态 (total_pressure > 180 判定为在床)
+- 总压力值
+- 监测时长
+
+### 设备名称
+
+ESP32 广播名为 `"SleepMonitor"`，手机 App 扫描后可见。

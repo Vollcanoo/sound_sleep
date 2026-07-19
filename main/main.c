@@ -6,6 +6,7 @@
  *   2. Posture_Recognition: FSR×3压力传感器(GPIO4/5/6) → 睡姿分类
  *   3. sleep_llm (本模块): 综合数据 → 云端LLM分析 → 气泵控制指令
  *   4. airbag-hardware: 左/右双气囊(GPIO7/8泵, GPIO9/10阀) → 枕头高度调节
+ *   5. BLE → frontier App: 实时推送 15 字段 CSV 到手机 (Nordic UART Service)
  *
  * GPIO 分配总览:
  *   GPIO4/5/6   - FSR 压力传感器 ADC (Posture_Recognition)
@@ -24,6 +25,7 @@
 #include "wifi_manager.h"
 #include "cloud_llm_client.h"
 #include "pump_controller.h"
+#include "ble_uart_server.h"
 
 static const char *TAG = "MAIN";
 
@@ -56,6 +58,34 @@ static void cloud_task(void *arg)
                      posture_name_cn(feat.posture.posture),
                      feat.posture.confidence,
                      feat.posture.x_center_cm);
+
+            /* ── BLE: 构造 15 字段 CSV 发给手机 App ────────── */
+            if (ble_uart_is_connected()) {
+                float total = feat.posture.median_left + feat.posture.median_center
+                            + feat.posture.median_right;
+                float left_r  = (total > 0) ? feat.posture.median_left / total : 0.0f;
+                float center_r = (total > 0) ? feat.posture.median_center / total : 0.0f;
+                float right_r = (total > 0) ? feat.posture.median_right / total : 0.0f;
+
+                char csv[180];
+                int csv_len = snprintf(csv, sizeof(csv),
+                    "%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.4f,%.4f,%.4f,%.2f,%.2f,%d,%s,%.4f\n",
+                    feat.posture.raw_left,
+                    feat.posture.raw_center,
+                    feat.posture.raw_right,
+                    feat.posture.median_left,
+                    feat.posture.median_center,
+                    feat.posture.median_right,
+                    total,
+                    left_r, center_r, right_r,
+                    feat.posture.x_center_cm,
+                    feat.posture.y_center_cm,
+                    (feat.posture.posture == POSTURE_MOVING) ? 1 : 0,
+                    posture_name(feat.posture.posture),
+                    feat.posture.confidence);
+                ble_uart_send(csv, (size_t)csv_len);
+                ESP_LOGD(TAG, "BLE TX: %s", csv);
+            }
 
             memset(report, 0, sizeof(report));
             memset(&cmd, 0, sizeof(cmd));
@@ -130,6 +160,12 @@ static void mock_data_task(void *arg)
             .confidence   = 0.85f,
             .x_center_cm  = -2.1f,
             .y_center_cm  = 0.15f,
+            .raw_left     = 850,
+            .raw_center   = 220,
+            .raw_right    = 60,
+            .median_left  = 840.0f,
+            .median_center = 215.0f,
+            .median_right = 55.0f,
         },
     };
 
@@ -152,6 +188,12 @@ static void mock_data_task(void *arg)
             .confidence   = 0.82f,
             .x_center_cm  = 0.12f,
             .y_center_cm  = 0.31f,
+            .raw_left     = 320,
+            .raw_center   = 650,
+            .raw_right    = 310,
+            .median_left  = 315.0f,
+            .median_center = 645.0f,
+            .median_right = 305.0f,
         },
     };
 
@@ -174,6 +216,12 @@ static void mock_data_task(void *arg)
             .confidence   = 0.88f,
             .x_center_cm  = 0.05f,
             .y_center_cm  = 0.28f,
+            .raw_left     = 330,
+            .raw_center   = 680,
+            .raw_right    = 340,
+            .median_left  = 325.0f,
+            .median_center = 675.0f,
+            .median_right = 335.0f,
         },
     };
 
@@ -196,6 +244,12 @@ static void mock_data_task(void *arg)
             .confidence   = 0.91f,
             .x_center_cm  = -0.08f,
             .y_center_cm  = 0.35f,
+            .raw_left     = 350,
+            .raw_center   = 700,
+            .raw_right    = 320,
+            .median_left  = 345.0f,
+            .median_center = 695.0f,
+            .median_right = 315.0f,
         },
     };
 
@@ -228,12 +282,13 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "╔══════════════════════════════════════╗");
-    ESP_LOGI(TAG, "║  ESP32 智能防鼾睡姿调节系统 v3.0    ║");
+    ESP_LOGI(TAG, "║  ESP32 智能防鼾睡姿调节系统 v4.0    ║");
     ESP_LOGI(TAG, "╠══════════════════════════════════════╣");
     ESP_LOGI(TAG, "║  鼾声: Snore_Det_esp (INMP441)      ║");
     ESP_LOGI(TAG, "║  睡姿: Posture_Recognition (FSR×3)  ║");
     ESP_LOGI(TAG, "║  分析: sleep_llm (VolcEngine API)   ║");
     ESP_LOGI(TAG, "║  执行: airbag-hardware (双气囊)     ║");
+    ESP_LOGI(TAG, "║  通信: BLE → 手机App (frontier)     ║");
     ESP_LOGI(TAG, "╚══════════════════════════════════════╝");
     ESP_LOGI(TAG, "");
 
@@ -258,6 +313,9 @@ void app_main(void)
 
     pump_controller_init();
     ESP_LOGI(TAG, "✅ 双气囊控制器已初始化");
+
+    ble_uart_server_init();
+    ESP_LOGI(TAG, "✅ BLE UART Server 已初始化 (手机 App 可连接)");
 
     xTaskCreate(cloud_task, "cloud", 16384, NULL, 3, NULL);
     xTaskCreate(pump_task,  "pump",  4096,  NULL, 4, NULL);
