@@ -1,0 +1,11 @@
+Snoring_Dataset/
+artifacts/
+__pycache__/
+*.pyc
+
+esp32s3/build/
+esp32s3/managed_components/
+esp32s3/sdkconfig
+esp32s3/sdkconfig.old
+esp32s3/main/models/*.espdl
+esp32s3/main/models/*.bin

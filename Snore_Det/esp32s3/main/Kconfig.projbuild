@@ -1,0 +1,21 @@
+menu "Snoring detector"
+
+config SNORE_I2S_BCLK_GPIO
+    int "INMP441 BCLK/SCK GPIO"
+    default 16
+
+config SNORE_I2S_WS_GPIO
+    int "INMP441 WS/LRCLK GPIO"
+    default 15
+
+config SNORE_I2S_DOUT_GPIO
+    int "INMP441 SD/DOUT GPIO"
+    default 17
+
+config SNORE_I2S_USE_RIGHT_CHANNEL
+    bool "Read right I2S channel"
+    default y
+    help
+        This board was verified with an INMP441 L/R pin tied to GND and the right slot selected.
+
+endmenu

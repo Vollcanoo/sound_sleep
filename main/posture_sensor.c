@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "driver/adc_oneshot.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
