@@ -7,6 +7,7 @@ import 'screens/auth/register_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/report/report_detail_screen.dart';
 import 'screens/device/device_scan_screen.dart';
+import 'screens/device/wifi_config_screen.dart';
 import 'screens/profile/profile_edit_screen.dart';
 
 class SleepApp extends StatelessWidget {

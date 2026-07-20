@@ -18,9 +18,7 @@ class CloudBaseDB {
 
   /// 插入一条记录，返回是否成功
   Future<bool> insert(String table, Map<String, dynamic> data) async {
-    // CloudBase 行级安全策略要求 _openid 字段
     final body = Map<String, dynamic>.from(data);
-    body['_openid'] = 'anon';
 
     try {
       final resp = await http.post(

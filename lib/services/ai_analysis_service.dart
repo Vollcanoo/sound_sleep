@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/sleep_record.dart';
 import '../models/posture_event.dart';
+import '../config/secrets.dart';
 
 /// AI 睡眠分析服务
 /// 使用火山引擎 VolcEngine（deepseek-v4-pro）分析睡眠数据，
@@ -12,8 +13,9 @@ class AiAnalysisService {
   static const String _apiUrl =
       'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
 
-  /// VolcEngine API 密钥 — 生产环境中应从安全存储读取
-  static const String _apiKey = '';
+  /// VolcEngine API 密钥 — 从 lib/config/secrets.dart 读取
+  /// 首次使用请复制 lib/config/secrets.dart.example → lib/config/secrets.dart 并填入 key
+  static const String _apiKey = volcEngineApiKey;
 
   /// 模型名称（与 sleep_llm ESP32 模块一致）
   static const String _model = 'deepseek-v4-pro-260425';

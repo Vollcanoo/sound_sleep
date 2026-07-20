@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/device_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/device_tile.dart';
+import 'wifi_config_screen.dart';
 
 class DeviceScanScreen extends StatefulWidget {
   const DeviceScanScreen({super.key});
@@ -219,15 +220,44 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                           device: device,
                           isBound: false,
                           onTap: () async {
-                            await deviceProvider.bindDevice(device);
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content:
-                                      Text('${device.name} 绑定成功'),
-                                  backgroundColor: Colors.green,
+                            // 如果是真实 BLE 设备（有 bleDevice），
+                            // 导航到 WiFi 配置页面进行配网
+                            if (device.bleDevice != null) {
+                              final result = await Navigator.of(context)
+                                  .push<bool>(
+                                MaterialPageRoute(
+                                  builder: (_) => WifiConfigScreen(
+                                    device: device.bleDevice!,
+                                  ),
                                 ),
                               );
+
+                              if (context.mounted && result == true) {
+                                // 配网成功 → 绑定设备
+                                await deviceProvider.bindDevice(device);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          '${device.name} 配网并绑定成功'),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                  Navigator.of(context).pop();
+                                }
+                              }
+                            } else {
+                              // Mock 设备 — 直接绑定（保留原有逻辑）
+                              await deviceProvider.bindDevice(device);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content:
+                                        Text('${device.name} 绑定成功'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              }
                             }
                           },
                         );
