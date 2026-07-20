@@ -20,14 +20,10 @@ class PostureChart extends StatelessWidget {
         return const Color(0xFF43A047);
       case PostureType.rightSide:
         return const Color(0xFFFF9800);
-      case PostureType.prone:
-        return const Color(0xFF7C4DFF);
       case PostureType.moving:
         return const Color(0xFF9E9E9E);
       case PostureType.noHead:
         return const Color(0xFFE53935);
-      case PostureType.uncertain:
-        return const Color(0xFFBDBDBD);
     }
   }
 

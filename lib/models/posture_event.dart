@@ -4,9 +4,7 @@ enum PostureType {
   moving,     // MOVING — 翻身中
   leftSide,   // LEFT_SIDE
   rightSide,  // RIGHT_SIDE
-  supine,     // SUPINE — 仰卧
-  prone,      // PRONE — 俯卧
-  uncertain;  // UNCERTAIN
+  supine;     // SUPINE — 仰卧
 
   /// 从 ESP32 CSV 的 posture 字段解析
   static PostureType fromString(String s) {
@@ -21,11 +19,8 @@ enum PostureType {
         return PostureType.rightSide;
       case 'SUPINE':
         return PostureType.supine;
-      case 'PRONE':
-        return PostureType.prone;
-      case 'UNCERTAIN':
       default:
-        return PostureType.uncertain;
+        return PostureType.noHead;
     }
   }
 
@@ -42,10 +37,6 @@ enum PostureType {
         return '右侧卧';
       case PostureType.supine:
         return '仰卧';
-      case PostureType.prone:
-        return '俯卧';
-      case PostureType.uncertain:
-        return '未知';
     }
   }
 
@@ -62,10 +53,6 @@ enum PostureType {
         return '➡️';
       case PostureType.supine:
         return '🔼';
-      case PostureType.prone:
-        return '🔽';
-      case PostureType.uncertain:
-        return '❓';
     }
   }
 }
@@ -77,15 +64,14 @@ enum PostureType {
 ///   median_pressure_left, median_pressure_center, median_pressure_right,
 ///   total_pressure,
 ///   left_ratio, center_ratio, right_ratio,
-///   x_center_cm, y_center_cm,
-///   moving, posture, confidence
+///   x_center_cm, moving, posture, confidence
 class PostureReading {
   final DateTime timestamp;
   final int rawLeft, rawCenter, rawRight;
   final double medianLeft, medianCenter, medianRight;
   final double totalPressure;
   final double leftRatio, centerRatio, rightRatio;
-  final double xCenterCm, yCenterCm;
+  final double xCenterCm;
   final bool isMoving;
   final PostureType posture;
   final double confidence;
@@ -103,7 +89,6 @@ class PostureReading {
     required this.centerRatio,
     required this.rightRatio,
     required this.xCenterCm,
-    required this.yCenterCm,
     required this.isMoving,
     required this.posture,
     required this.confidence,
@@ -115,8 +100,8 @@ class PostureReading {
   /// CSV 中 moving 字段为 "1"/"true" 表示正在移动。
   factory PostureReading.fromCsv(String csvLine, {DateTime? timestamp}) {
     final parts = csvLine.split(',');
-    if (parts.length < 15) {
-      throw FormatException('CSV 列数不足，期望 15 列，实际 ${parts.length}');
+    if (parts.length != 14) {
+      throw FormatException('CSV 列数错误，期望 14 列，实际 ${parts.length}');
     }
     return PostureReading(
       timestamp: timestamp ?? DateTime.now(),
@@ -131,10 +116,9 @@ class PostureReading {
       centerRatio: double.tryParse(parts[8].trim()) ?? 0.0,
       rightRatio: double.tryParse(parts[9].trim()) ?? 0.0,
       xCenterCm: double.tryParse(parts[10].trim()) ?? 0.0,
-      yCenterCm: double.tryParse(parts[11].trim()) ?? 0.0,
-      isMoving: parts[12].trim() == '1' || parts[12].trim().toLowerCase() == 'true',
-      posture: PostureType.fromString(parts[13].trim()),
-      confidence: double.tryParse(parts[14].trim()) ?? 0.0,
+      isMoving: parts[11].trim() == '1' || parts[11].trim().toLowerCase() == 'true',
+      posture: PostureType.fromString(parts[12].trim()),
+      confidence: double.tryParse(parts[13].trim()) ?? 0.0,
     );
   }
 

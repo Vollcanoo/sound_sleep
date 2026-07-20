@@ -249,7 +249,6 @@ class BleDataService extends ChangeNotifier {
       PostureType.supine,
       PostureType.leftSide,
       PostureType.rightSide,
-      PostureType.prone,
       PostureType.moving,
     ];
     var currentPosture = PostureType.supine;
@@ -285,10 +284,6 @@ class BleDataService extends ChangeNotifier {
           rawLeft = 300 + random.nextInt(100);
           rawCenter = 600 + random.nextInt(200);
           rawRight = 300 + random.nextInt(100);
-        case PostureType.prone:
-          rawLeft = 400 + random.nextInt(100);
-          rawCenter = 500 + random.nextInt(150);
-          rawRight = 400 + random.nextInt(100);
         case PostureType.moving:
           rawLeft = random.nextInt(600);
           rawCenter = random.nextInt(600);
@@ -322,7 +317,6 @@ class BleDataService extends ChangeNotifier {
         centerR.toStringAsFixed(4),
         rightR.toStringAsFixed(4),
         (leftR * 10 - 5).toStringAsFixed(2), // xCenterCm
-        (centerR * 10 - 5).toStringAsFixed(2), // yCenterCm
         isMoving ? '1' : '0',
         currentPosture.name.toUpperCase().replaceAllMapped(
               RegExp(r'([a-z])([A-Z])'),
