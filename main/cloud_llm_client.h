@@ -13,8 +13,14 @@
  *  修改下面三个宏为你实际获取的值
  */
 #define VOLCENGINE_API_URL   "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-#define VOLCENGINE_API_KEY   "your-api-key-here"  // 替换为你的 API Key
 #define VOLCENGINE_MODEL     "deepseek-v4-pro-260425"
+
+/*
+ * API Key 从 secrets.h 读取 (不纳入 git):
+ *   #define VOLCENGINE_API_KEY "ark-xxxxx"
+ * 首次使用请复制 main/secrets.h.example → main/secrets.h 并填入你的 key
+ */
+#include "secrets.h"
 
 /**
  * 气泵控制指令 — 从云端 LLM 响应中解析出

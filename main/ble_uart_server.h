@@ -6,13 +6,10 @@
  *   TX (ESP32→手机 Notify): 6e400003-b5a3-f393-e0a9-e50e24dcca9e
  *   RX (手机→ESP32 Write):  6e400002-b5a3-f393-e0a9-e50e24dcca9e
  *
- * 数据格式: UTF-8 CSV 行，'\n' 结尾，15 字段
- *   raw_left,raw_center,raw_right,
- *   median_left,median_center,median_right,
- *   total_pressure,
- *   left_ratio,center_ratio,right_ratio,
- *   x_center_cm,y_center_cm,
- *   moving(0/1),posture(SUPINE/LEFT_SIDE/...),confidence
+ * 功能:
+ *   1. WiFi 配网: 接收手机发送的 WiFi 凭据 JSON
+ *   2. 数据推送: CSV 行发送姿态数据给手机 (可选，配网后 BLE 停止)
+ *   3. 控制指令: 接收手机发送的控制指令 (如 'b' 校准)
  *
  * 广播名称: "SleepMonitor"
  */
@@ -27,6 +24,18 @@
  * 调用一次即可，之后自动广播等待手机连接。
  */
 void ble_uart_server_init(void);
+
+/**
+ * 停止 BLE 广播并断开连接。
+ * WiFi 连接成功后调用以节省功耗。
+ */
+void ble_uart_server_stop(void);
+
+/**
+ * 重新开启 BLE 广播。
+ * WiFi 断开后调用，让手机可以重新发现设备进行配网。
+ */
+void ble_uart_server_restart(void);
 
 /**
  * 通过 BLE Notify 发送数据。

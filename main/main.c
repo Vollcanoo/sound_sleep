@@ -2,11 +2,21 @@
  * main.c — ESP32 智能防鼾睡姿调节系统 主程序
  *
  * 全流程整合:
- *   1. Snore_Det_esp: INMP441麦克风(GPIO14/15/32) → 鼾声模型推理 → probability
- *   2. Posture_Recognition: FSR×3压力传感器(GPIO4/5/6) → 睡姿分类
- *   3. sleep_llm (本模块): 综合数据 → 云端LLM分析 → 气泵控制指令
- *   4. airbag-hardware: 左/右双气囊(GPIO7/8泵, GPIO9/10阀) → 枕头高度调节
- *   5. BLE → frontier App: 实时推送 15 字段 CSV 到手机 (Nordic UART Service)
+ *   1. BLE WiFi 配网: 开机 BLE 广播 → 手机发送 WiFi 凭据 → 连接 WiFi
+ *   2. Snore_Det_esp: INMP441麦克风(GPIO14/15/32) → 鼾声模型推理 → probability
+ *   3. Posture_Recognition: FSR×3压力传感器(GPIO4/5/6) → 睡姿分类
+ *   4. 睡眠会话管理: 检测压力出现/消失 → 累积整晚数据
+ *   5. 实时气泵控制: 本地规则判断 → 充气/放气
+ *   6. 睡眠结束: 云端 LLM 分析 → 数据上云 (CloudBase)
+ *   7. airbag-hardware: 左/右双气囊(GPIO7/8泵, GPIO9/10阀) → 枕头高度调节
+ *
+ * 启动流程:
+ *   1. 初始化 WiFi 子系统（不连接）
+ *   2. 检查 NVS 是否有已保存的 WiFi 凭据
+ *      - 有 → 直接连接 WiFi
+ *      - 无 → 开启 BLE 广播，等待手机配网
+ *   3. WiFi 连接成功 → 停止 BLE → 启动传感器任务
+ *   4. WiFi 断开 → 重新开启 BLE 广播等待重新配网
  *
  * GPIO 分配总览:
  *   GPIO4/5/6   - FSR 压力传感器 ADC (Posture_Recognition)
@@ -18,92 +28,117 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/event_groups.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 
 #include "snore_feature.h"
 #include "wifi_manager.h"
+#include "wifi_provision.h"
 #include "cloud_llm_client.h"
+#include "cloud_upload.h"
 #include "pump_controller.h"
+#include "pump_rules.h"
 #include "ble_uart_server.h"
+#include "sleep_session.h"
 
 static const char *TAG = "MAIN";
 
-/* ── 全局队列 ──────────────────────────────────────── */
+/* ── 全局队列与事件组 ──────────────────────────────── */
 QueueHandle_t g_feature_queue = NULL;   /* 组员写入 → cloud_task 读取 */
 static QueueHandle_t s_cmd_queue = NULL; /* cloud_task 写入 → pump_task 读取 */
+EventGroupHandle_t g_provision_event_group = NULL; /* WiFi 配网事件 */
 
 /* ────────────────────────────────────────────────────
- *  cloud_task — 云端分析任务
+ *  WiFi 断开回调 — 重试耗尽后重新进入 BLE 配网模式
+ * ──────────────────────────────────────────────────── */
+static void on_wifi_disconnect(void)
+{
+    ESP_LOGW(TAG, "WiFi 连接丢失且重试耗尽，重新进入 BLE 配网模式");
+    wifi_provision_clear_credentials();
+    ble_uart_server_restart();
+}
+
+/* ────────────────────────────────────────────────────
+ *  cloud_task — 睡眠会话管理 + 实时气泵 + 睡眠结束 LLM 分析
  * ──────────────────────────────────────────────────── */
 static void cloud_task(void *arg)
 {
     snore_features_t feat;
-    char report[512];
     pump_command_t cmd;
 
     ESP_LOGI(TAG, "cloud_task 已启动，等待传感器数据...");
 
+    /* 初始化睡眠会话管理器 */
+    session_init();
+
     while (1) {
         if (xQueueReceive(g_feature_queue, &feat, portMAX_DELAY) == pdTRUE) {
-            ESP_LOGI(TAG, "═══════════════════════════════════════");
-            ESP_LOGI(TAG, "收到传感器综合数据:");
-            ESP_LOGI(TAG, "  【鼾声】detected=%s mean=%.4f max=%.4f %.2f分钟/时",
-                     feat.snore_detected ? "是" : "否",
-                     feat.mean_probability,
-                     feat.max_probability,
-                     feat.snore_minutes_per_hour);
-            ESP_LOGI(TAG, "  【睡姿】%s (%s) 置信度=%.2f X=%.2fcm",
+            ESP_LOGD(TAG, "收到传感器数据: posture=%s snore=%s %.2f分/时",
                      posture_name(feat.posture.posture),
-                     posture_name_cn(feat.posture.posture),
-                     feat.posture.confidence,
-                     feat.posture.x_center_cm);
+                     feat.snore_detected ? "是" : "否",
+                     feat.snore_minutes_per_hour);
 
-            /* ── BLE: 构造 15 字段 CSV 发给手机 App ────────── */
-            if (ble_uart_is_connected()) {
-                float total = feat.posture.median_left + feat.posture.median_center
-                            + feat.posture.median_right;
-                float left_r  = (total > 0) ? feat.posture.median_left / total : 0.0f;
-                float center_r = (total > 0) ? feat.posture.median_center / total : 0.0f;
-                float right_r = (total > 0) ? feat.posture.median_right / total : 0.0f;
+            /* ── 1. 累积到睡眠会话 ───────────────── */
+            session_on_data(&feat);
 
-                char csv[180];
-                int csv_len = snprintf(csv, sizeof(csv),
-                    "%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.4f,%.4f,%.4f,%.2f,%.2f,%d,%s,%.4f\n",
-                    feat.posture.raw_left,
-                    feat.posture.raw_center,
-                    feat.posture.raw_right,
-                    feat.posture.median_left,
-                    feat.posture.median_center,
-                    feat.posture.median_right,
-                    total,
-                    left_r, center_r, right_r,
-                    feat.posture.x_center_cm,
-                    feat.posture.y_center_cm,
-                    (feat.posture.posture == POSTURE_MOVING) ? 1 : 0,
-                    posture_name(feat.posture.posture),
-                    feat.posture.confidence);
-                ble_uart_send(csv, (size_t)csv_len);
-                ESP_LOGD(TAG, "BLE TX: %s", csv);
-            }
-
-            memset(report, 0, sizeof(report));
+            /* ── 2. 实时气泵控制（本地规则，不调 LLM）── */
             memset(&cmd, 0, sizeof(cmd));
+            pump_evaluate_local_rule(&feat, &cmd);
 
-            int ret = cloud_llm_analyze(&feat, report, sizeof(report), &cmd);
-
-            if (ret == 0) {
-                ESP_LOGI(TAG, "───────────────────────────────────");
-                ESP_LOGI(TAG, "📋 分析报告: %s", report);
-                ESP_LOGI(TAG, "🎮 控制指令: action=%s zone=%s intensity=%d duration=%ds",
+            if (strcmp(cmd.action, "hold") != 0) {
+                ESP_LOGI(TAG, "🎮 气泵指令: %s %s (强度%d%%, %ds)",
                          cmd.action, cmd.zone, cmd.intensity, cmd.duration_sec);
-                ESP_LOGI(TAG, "═══════════════════════════════════════");
-
                 if (xQueueSend(s_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) != pdTRUE) {
                     ESP_LOGW(TAG, "气泵指令队列已满，丢弃本次指令");
                 }
-            } else {
-                ESP_LOGE(TAG, "云端 API 调用失败 (错误码: %d)", ret);
+            }
+
+            /* ── 3. 检查睡眠是否结束 ─────────────── */
+            if (session_is_ended()) {
+                ESP_LOGI(TAG, "═══════════════════════════════════════");
+                ESP_LOGI(TAG, "💤 睡眠会话结束！开始生成分析报告...");
+
+                sleep_session_summary_t summary = session_get_summary();
+
+                ESP_LOGI(TAG, "  时长: %d 分钟", summary.duration_minutes);
+                ESP_LOGI(TAG, "  起身: %d 次", summary.get_up_count);
+                ESP_LOGI(TAG, "  鼾声: %.1f 分钟 (%.2f 分钟/时)",
+                         summary.total_snore_minutes,
+                         summary.snore_minutes_per_hour);
+                ESP_LOGI(TAG, "  评分: %d", summary.sleep_score);
+                ESP_LOGI(TAG, "  主要睡姿: %s",
+                         posture_name(summary.dominant_posture));
+
+                /* ── 调用 LLM 生成整晚分析报告 ──── */
+                char report[512] = {0};
+                int ret = cloud_llm_analyze(&summary.last_features,
+                                            report, sizeof(report), &cmd);
+                if (ret == 0) {
+                    ESP_LOGI(TAG, "📋 AI 分析报告: %s", report);
+                } else {
+                    ESP_LOGW(TAG, "LLM 分析失败 (err=%d)，使用默认报告", ret);
+                    snprintf(report, sizeof(report),
+                             "睡眠时长%d分钟，起身%d次，鼾声%.1f分钟，评分%d分。",
+                             summary.duration_minutes,
+                             summary.get_up_count,
+                             summary.total_snore_minutes,
+                             summary.sleep_score);
+                }
+
+                /* ── 上传到 CloudBase ─────────── */
+                ESP_LOGI(TAG, "☁️  上传睡眠数据到云端...");
+                int upload_ret = cloud_upload_sleep_record(&summary, report);
+                if (upload_ret == 0) {
+                    ESP_LOGI(TAG, "✅ 云端上传成功");
+                } else {
+                    ESP_LOGE(TAG, "❌ 云端上传失败 (err=%d)", upload_ret);
+                }
+
+                ESP_LOGI(TAG, "═══════════════════════════════════════");
+
+                /* 重置会话，等待下一次睡眠 */
+                session_reset();
             }
         }
     }
@@ -128,152 +163,53 @@ static void pump_task(void *arg)
 }
 
 /* ────────────────────────────────────────────────────
- *  mock_data_task — 模拟测试数据
+ *  ble_provision_loop — BLE 配网等待循环
  *
- *  4 个场景覆盖全流程:
- *    鼾声(Snore_Det_esp) + 睡姿(Posture_Recognition) → LLM → 气泵(airbag-hardware)
- *  组员代码接入后设 ENABLE_MOCK_DATA=0
+ *  阻塞等待手机通过 BLE 发送 WiFi 凭据，
+ *  收到后尝试连接 WiFi，失败则回复错误并继续等待。
+ *  返回 ESP_OK 表示 WiFi 已成功连接。
  * ──────────────────────────────────────────────────── */
-#define ENABLE_MOCK_DATA  1
-
-#if ENABLE_MOCK_DATA
-static void mock_data_task(void *arg)
+static esp_err_t ble_provision_loop(void)
 {
-    ESP_LOGW(TAG, "⚠️  模拟数据模式（组员代码接入后请关闭 ENABLE_MOCK_DATA）");
-
-    /* 场景1: 正常 — 侧卧无鼾声 → hold */
-    snore_features_t scene1 = {
-        .window_seconds         = 5.0f,
-        .hop_seconds            = 5.0f,
-        .decision_threshold     = 0.44f,
-        .window_count           = 3985,
-        .mean_probability       = 0.08f,
-        .max_probability        = 0.35f,
-        .positive_window_count  = 0,
-        .positive_window_ratio  = 0.0f,
-        .positive_duration_seconds = 0.0f,
-        .positive_duration_minutes = 0.0f,
-        .snore_detected         = false,
-        .snore_minutes_per_hour = 0.0f,
-        .posture = {
-            .posture      = POSTURE_LEFT_SIDE,
-            .confidence   = 0.85f,
-            .x_center_cm  = -2.1f,
-            .y_center_cm  = 0.15f,
-            .raw_left     = 850,
-            .raw_center   = 220,
-            .raw_right    = 60,
-            .median_left  = 840.0f,
-            .median_center = 215.0f,
-            .median_right = 55.0f,
-        },
-    };
-
-    /* 场景2: 仰卧轻度鼾声 — snore<2分钟/时 → hold */
-    snore_features_t scene2 = {
-        .window_seconds         = 5.0f,
-        .hop_seconds            = 5.0f,
-        .decision_threshold     = 0.44f,
-        .window_count           = 3985,
-        .mean_probability       = 0.15f,
-        .max_probability        = 0.72f,
-        .positive_window_count  = 60,
-        .positive_window_ratio  = 0.015f,
-        .positive_duration_seconds = 300.0f,
-        .positive_duration_minutes = 5.0f,
-        .snore_detected         = true,
-        .snore_minutes_per_hour = 0.90f,
-        .posture = {
-            .posture      = POSTURE_SUPINE,
-            .confidence   = 0.82f,
-            .x_center_cm  = 0.12f,
-            .y_center_cm  = 0.31f,
-            .raw_left     = 320,
-            .raw_center   = 650,
-            .raw_right    = 310,
-            .median_left  = 315.0f,
-            .median_center = 645.0f,
-            .median_right = 305.0f,
-        },
-    };
-
-    /* 场景3: 仰卧中度鼾声 — snore≈4分钟/时 → inflate right */
-    snore_features_t scene3 = {
-        .window_seconds         = 5.0f,
-        .hop_seconds            = 5.0f,
-        .decision_threshold     = 0.44f,
-        .window_count           = 3985,
-        .mean_probability       = 0.2143f,
-        .max_probability        = 0.951f,
-        .positive_window_count  = 270,
-        .positive_window_ratio  = 0.06775f,
-        .positive_duration_seconds = 1350.0f,
-        .positive_duration_minutes = 22.5f,
-        .snore_detected         = true,
-        .snore_minutes_per_hour = 4.0659f,
-        .posture = {
-            .posture      = POSTURE_SUPINE,
-            .confidence   = 0.88f,
-            .x_center_cm  = 0.05f,
-            .y_center_cm  = 0.28f,
-            .raw_left     = 330,
-            .raw_center   = 680,
-            .raw_right    = 340,
-            .median_left  = 325.0f,
-            .median_center = 675.0f,
-            .median_right = 335.0f,
-        },
-    };
-
-    /* 场景4: 仰卧严重鼾声 — max>0.9 且 ratio>0.1 → inflate right 高强度 */
-    snore_features_t scene4 = {
-        .window_seconds         = 5.0f,
-        .hop_seconds            = 5.0f,
-        .decision_threshold     = 0.44f,
-        .window_count           = 3985,
-        .mean_probability       = 0.35f,
-        .max_probability        = 0.97f,
-        .positive_window_count  = 500,
-        .positive_window_ratio  = 0.1255f,
-        .positive_duration_seconds = 2500.0f,
-        .positive_duration_minutes = 41.67f,
-        .snore_detected         = true,
-        .snore_minutes_per_hour = 7.53f,
-        .posture = {
-            .posture      = POSTURE_SUPINE,
-            .confidence   = 0.91f,
-            .x_center_cm  = -0.08f,
-            .y_center_cm  = 0.35f,
-            .raw_left     = 350,
-            .raw_center   = 700,
-            .raw_right    = 320,
-            .median_left  = 345.0f,
-            .median_center = 695.0f,
-            .median_right = 315.0f,
-        },
-    };
-
-    const snore_features_t *scenarios[] = { &scene1, &scene2, &scene3, &scene4 };
-    int num_scenarios = sizeof(scenarios) / sizeof(scenarios[0]);
-    int scenario_idx = 0;
+    char ssid[33] = {0};
+    char pass[65] = {0};
 
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(30000));
+        ESP_LOGI(TAG, "📡 等待手机通过 BLE 发送 WiFi 配置...");
 
-        snore_features_t feat = *scenarios[scenario_idx];
-        feat.timestamp_ms = esp_timer_get_time() / 1000;
+        /* 阻塞等待凭据到来 */
+        xEventGroupWaitBits(g_provision_event_group,
+                            PROVISION_CRED_RECEIVED_BIT,
+                            pdTRUE,   /* 收到后清除 bit */
+                            pdFALSE,
+                            portMAX_DELAY);
 
-        ESP_LOGI(TAG, "📡 模拟场景 %d/%d: snore=%s %.2f分/时 posture=%s",
-                 scenario_idx + 1, num_scenarios,
-                 feat.snore_detected ? "是" : "否",
-                 feat.snore_minutes_per_hour,
-                 posture_name(feat.posture.posture));
+        ESP_LOGI(TAG, "收到 WiFi 凭据，正在连接...");
 
-        xQueueSend(g_feature_queue, &feat, pdMS_TO_TICKS(1000));
-        scenario_idx = (scenario_idx + 1) % num_scenarios;
+        /* 读取凭据 */
+        if (wifi_provision_load_credentials(ssid, sizeof(ssid),
+                                            pass, sizeof(pass)) != ESP_OK) {
+            ESP_LOGE(TAG, "读取 NVS 凭据失败");
+            continue;
+        }
+
+        /* 尝试连接 */
+        esp_err_t ret = wifi_manager_connect(ssid, pass);
+        if (ret == ESP_OK) {
+            /* 连接成功，通知手机 */
+            const char *ok_msg = "{\"status\":\"ok\",\"msg\":\"wifi_connected\"}";
+            ble_uart_send(ok_msg, strlen(ok_msg));
+            return ESP_OK;
+        }
+
+        /* 连接失败，通知手机 */
+        ESP_LOGW(TAG, "WiFi 连接失败，等待重新配网...");
+        const char *err_msg = "{\"status\":\"error\",\"msg\":\"connect_failed\"}";
+        ble_uart_send(err_msg, strlen(err_msg));
+        wifi_provision_clear_credentials();
+        /* 继续等待下一次配网 */
     }
 }
-#endif
 
 /* ────────────────────────────────────────────────────
  *  app_main — 系统入口
@@ -282,13 +218,15 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "╔══════════════════════════════════════╗");
-    ESP_LOGI(TAG, "║  ESP32 智能防鼾睡姿调节系统 v4.0    ║");
+    ESP_LOGI(TAG, "║  ESP32 智能防鼾睡姿调节系统 v5.0    ║");
     ESP_LOGI(TAG, "╠══════════════════════════════════════╣");
+    ESP_LOGI(TAG, "║  配网: BLE WiFi Provisioning        ║");
     ESP_LOGI(TAG, "║  鼾声: Snore_Det_esp (INMP441)      ║");
     ESP_LOGI(TAG, "║  睡姿: Posture_Recognition (FSR×3)  ║");
-    ESP_LOGI(TAG, "║  分析: sleep_llm (VolcEngine API)   ║");
+    ESP_LOGI(TAG, "║  控制: 本地规则实时气泵             ║");
+    ESP_LOGI(TAG, "║  分析: 睡眠结束后 LLM (VolcEngine)  ║");
+    ESP_LOGI(TAG, "║  上云: 腾讯云 CloudBase              ║");
     ESP_LOGI(TAG, "║  执行: airbag-hardware (双气囊)     ║");
-    ESP_LOGI(TAG, "║  通信: BLE → 手机App (frontier)     ║");
     ESP_LOGI(TAG, "╚══════════════════════════════════════╝");
     ESP_LOGI(TAG, "");
 
@@ -296,6 +234,66 @@ void app_main(void)
     ESP_LOGI(TAG, "  传感: FSR ADC=GPIO4/5/6, INMP441 I2S=GPIO14/15/32");
     ESP_LOGI(TAG, "  执行: 泵=GPIO7/8, 阀=GPIO9/10");
 
+    /* ── 1. 初始化 WiFi 子系统（不连接）────────────── */
+    ESP_LOGI(TAG, "初始化 WiFi 子系统...");
+    esp_err_t ret = wifi_manager_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi 子系统初始化失败！");
+        return;
+    }
+    wifi_manager_set_disconnect_cb(on_wifi_disconnect);
+
+    /* ── 2. 初始化气泵控制器 ──────────────────────── */
+    pump_controller_init();
+    ESP_LOGI(TAG, "✅ 双气囊控制器已初始化");
+
+    /* ── 3. 创建配网事件组 ────────────────────────── */
+    g_provision_event_group = xEventGroupCreate();
+    if (!g_provision_event_group) {
+        ESP_LOGE(TAG, "配网事件组创建失败！");
+        return;
+    }
+
+    /* ── 4. 尝试使用 NVS 中已保存的 WiFi 凭据 ───── */
+    bool wifi_connected = false;
+
+    if (wifi_provision_has_credentials()) {
+        char ssid[33] = {0};
+        char pass[65] = {0};
+
+        ESP_LOGI(TAG, "NVS 中找到已保存的 WiFi 凭据，尝试连接...");
+        if (wifi_provision_load_credentials(ssid, sizeof(ssid),
+                                            pass, sizeof(pass)) == ESP_OK) {
+            ret = wifi_manager_connect(ssid, pass);
+            if (ret == ESP_OK) {
+                ESP_LOGI(TAG, "✅ WiFi 连接成功（使用已保存的凭据）");
+                wifi_connected = true;
+            } else {
+                ESP_LOGW(TAG, "已保存的凭据连接失败，清除并进入 BLE 配网模式");
+                wifi_provision_clear_credentials();
+            }
+        }
+    }
+
+    /* ── 5. 如果需要 BLE 配网 ────────────────────── */
+    if (!wifi_connected) {
+        ESP_LOGI(TAG, "进入 BLE 配网模式...");
+        ble_uart_server_init();
+        ESP_LOGI(TAG, "✅ BLE 广播已开启 (设备名: SleepMonitor)");
+
+        ret = ble_provision_loop();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "BLE 配网失败！");
+            return;
+        }
+        ESP_LOGI(TAG, "✅ WiFi 连接成功（通过 BLE 配网）");
+    }
+
+    /* ── 6. WiFi 已连接 → 停止 BLE，启动工作任务 ── */
+    ble_uart_server_stop();
+    ESP_LOGI(TAG, "🔇 BLE 已停止（节省功耗）");
+
+    /* 创建队列 */
     g_feature_queue = xQueueCreate(4, sizeof(snore_features_t));
     s_cmd_queue     = xQueueCreate(4, sizeof(pump_command_t));
     if (!g_feature_queue || !s_cmd_queue) {
@@ -303,54 +301,29 @@ void app_main(void)
         return;
     }
 
-    ESP_LOGI(TAG, "正在连接 Wi-Fi...");
-    esp_err_t wifi_ret = wifi_manager_init();
-    if (wifi_ret != ESP_OK) {
-        ESP_LOGE(TAG, "Wi-Fi 连接失败，系统无法启动");
-        return;
-    }
-    ESP_LOGI(TAG, "✅ Wi-Fi 已连接");
-
-    pump_controller_init();
-    ESP_LOGI(TAG, "✅ 双气囊控制器已初始化");
-
-    ble_uart_server_init();
-    ESP_LOGI(TAG, "✅ BLE UART Server 已初始化 (手机 App 可连接)");
-
+    /* 启动工作任务 */
     xTaskCreate(cloud_task, "cloud", 16384, NULL, 3, NULL);
     xTaskCreate(pump_task,  "pump",  4096,  NULL, 4, NULL);
     ESP_LOGI(TAG, "✅ cloud_task 和 pump_task 已启动");
 
-#if ENABLE_MOCK_DATA
-    xTaskCreate(mock_data_task, "mock", 4096, NULL, 2, NULL);
-    ESP_LOGW(TAG, "⚠️  模拟数据模式 — 每30秒发送测试数据");
-#else
-    ESP_LOGI(TAG, "等待组员通过 g_feature_queue 发送传感器数据...");
-#endif
-
     /*
-     * 组员集成方式 (两人分工):
+     * 传感器数据来源 (两人分工):
      *
-     * [鼾声组员] — 参考 Snore_Det_esp 分支
-     *   每 5 秒汇总一次 decision_window 结果，累积到 summary 统计
+     * [鼾声组员] — Snore_Det_esp 分支
+     *   INMP441 麦克风 (GPIO14/15/32) → 模型推理 → probability
+     *   每 5 秒汇总一次，累积到 summary 统计
      *
-     * [睡姿组员] — 参考 Posture_Recognition 分支
-     *   每秒读取 FSR 传感器，分类出 posture + confidence
+     * [睡姿组员] — Posture_Recognition 分支
+     *   FSR×3 压力传感器 (GPIO4/5/6) → 中值滤波 → 规则分类
+     *   每秒读取并分类出 posture + confidence
      *
      * [合并发送]:
      *   #include "snore_feature.h"
      *   extern QueueHandle_t g_feature_queue;
      *
-     *   snore_features_t feat = {
-     *       // 鼾声 (从 Snore_Det_esp 的 FiveSecondDecisionAggregator 累积)
-     *       .window_seconds = 5.0, .hop_seconds = 5.0,
-     *       .decision_threshold = 0.44,
-     *       .window_count = ..., .mean_probability = ..., ...
-     *       // 睡姿 (从 Posture_Recognition 的 classifyPosture 获取)
-     *       .posture = { .posture = POSTURE_SUPINE, .confidence = 0.85, ... },
-     *   };
+     *   snore_features_t feat = { ... };
      *   xQueueSend(g_feature_queue, &feat, portMAX_DELAY);
      */
 
-    ESP_LOGI(TAG, "🚀 系统已就绪！");
+    ESP_LOGI(TAG, "🚀 系统已就绪！等待传感器数据...");
 }

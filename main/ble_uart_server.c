@@ -7,8 +7,8 @@
  * 功能:
  *   - GAP 广播设备名 "SleepMonitor"
  *   - GATT 注册 Nordic UART Service (NUS)
- *   - TX Characteristic: Notify 推送 CSV 数据给手机
- *   - RX Characteristic: 接收手机写入的控制指令
+ *   - TX Characteristic: Notify 推送数据给手机
+ *   - RX Characteristic: 接收手机写入的 WiFi 配网 JSON 或控制指令
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -25,6 +25,7 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "ble_uart_server.h"
+#include "wifi_provision.h"
 
 static const char *TAG = "BLE_UART";
 
@@ -48,6 +49,8 @@ static const ble_uuid128_t NUS_TX_UUID =
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t s_tx_attr_handle = 0;
 static bool     s_notify_enabled = false;
+static bool     s_ble_initialized = false;
+static bool     s_ble_stopped = false;
 
 /* ────────────────────────────────────────────────────
  *  GATT Access 回调
@@ -59,17 +62,25 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
 {
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
         uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-        if (len > 0 && len < 128) {
-            char buf[128] = {0};
+        if (len > 0 && len < 256) {
+            char buf[256] = {0};
             uint16_t copied = 0;
             ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof(buf) - 1, &copied);
             buf[copied] = '\0';
-            ESP_LOGI(TAG, "RX 收到指令: %s (len=%d)", buf, copied);
+            ESP_LOGI(TAG, "RX 收到数据: %s (len=%d)", buf, copied);
 
-            /* 处理已知指令 */
-            if (buf[0] == 'b' || buf[0] == 'B') {
+            /* JSON 数据 → 路由到 WiFi 配网处理 */
+            if (buf[0] == '{') {
+                ESP_LOGI(TAG, "检测到 JSON 数据，转发到配网处理...");
+                wifi_provision_handle_ble_data(buf, copied);
+            }
+            /* 单字节控制指令 */
+            else if (buf[0] == 'b' || buf[0] == 'B') {
                 ESP_LOGI(TAG, "收到校准指令 'b'");
                 /* TODO: 设置全局标志触发传感器重校准 */
+            }
+            else {
+                ESP_LOGW(TAG, "未识别的指令: %s", buf);
             }
         }
     }
@@ -123,7 +134,9 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
             ESP_LOGI(TAG, "📱 客户端已连接 (handle=%d)", s_conn_handle);
         } else {
             ESP_LOGW(TAG, "连接失败, status=%d", event->connect.status);
-            start_advertising();
+            if (!s_ble_stopped) {
+                start_advertising();
+            }
         }
         break;
 
@@ -131,7 +144,9 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "📱 客户端已断开 (reason=%d)", event->disconnect.reason);
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_notify_enabled = false;
-        start_advertising();
+        if (!s_ble_stopped) {
+            start_advertising();
+        }
         break;
 
     case BLE_GAP_EVENT_SUBSCRIBE:
@@ -142,7 +157,9 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
         break;
 
     case BLE_GAP_EVENT_ADV_COMPLETE:
-        start_advertising();
+        if (!s_ble_stopped) {
+            start_advertising();
+        }
         break;
 
     case BLE_GAP_EVENT_MTU:
@@ -160,6 +177,11 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
  * ──────────────────────────────────────────────────── */
 static void start_advertising(void)
 {
+    if (s_ble_stopped) {
+        ESP_LOGD(TAG, "BLE 已停止，不启动广播");
+        return;
+    }
+
     struct ble_gap_adv_params adv_params = {0};
     struct ble_hs_adv_fields fields = {0};
 
@@ -212,7 +234,9 @@ static void ble_on_sync(void)
         ESP_LOGE(TAG, "确保 BLE 地址失败");
         return;
     }
-    start_advertising();
+    if (!s_ble_stopped) {
+        start_advertising();
+    }
 }
 
 static void ble_on_reset(int reason)
@@ -236,6 +260,11 @@ static void nimble_host_task(void *param)
 
 void ble_uart_server_init(void)
 {
+    if (s_ble_initialized) {
+        ESP_LOGW(TAG, "BLE 已初始化，跳过");
+        return;
+    }
+
     ESP_LOGI(TAG, "初始化 NimBLE UART Server...");
 
     /* 初始化 NimBLE */
@@ -270,7 +299,45 @@ void ble_uart_server_init(void)
     /* 启动 NimBLE Host 任务 */
     nimble_port_freertos_init(nimble_host_task);
 
+    s_ble_initialized = true;
+    s_ble_stopped = false;
+
     ESP_LOGI(TAG, "✅ BLE UART Server 初始化完成 (设备名: %s)", DEVICE_NAME);
+}
+
+void ble_uart_server_stop(void)
+{
+    if (!s_ble_initialized || s_ble_stopped) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "停止 BLE 广播...");
+    s_ble_stopped = true;
+
+    /* 停止广播 */
+    ble_gap_adv_stop();
+
+    /* 如果有连接，断开 */
+    if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+        s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        s_notify_enabled = false;
+    }
+
+    ESP_LOGI(TAG, "🔇 BLE 已停止");
+}
+
+void ble_uart_server_restart(void)
+{
+    if (!s_ble_initialized) {
+        /* 如果从未初始化过，执行完整初始化 */
+        ble_uart_server_init();
+        return;
+    }
+
+    ESP_LOGI(TAG, "重新开启 BLE 广播...");
+    s_ble_stopped = false;
+    start_advertising();
 }
 
 void ble_uart_send(const char *data, size_t len)
