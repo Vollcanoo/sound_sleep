@@ -5,7 +5,7 @@
  * 硬编码为 C 函数，用于实时气泵控制（不调用 LLM API）。
  *
  * 数据来源:
- *   - 鼾声: Snore_Det_esp 分支 (INMP441 → PhysicsSnoreEdgeModel → probability)
+ *   - 鼾声: Snore_Det 分支 (INMP441 → ESP-DL → probability)
  *   - 睡姿: Posture_Recognition 分支 (FSR×3 → 规则分类 → posture + confidence)
  *   - 气泵: airbag-hardware 分支 (左/右独立气泵+电磁阀, GPIO7/8/9/10)
  */

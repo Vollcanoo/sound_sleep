@@ -49,11 +49,11 @@ typedef struct {
  * 鼾声模型输出结果 — 严格对齐 snore_model_output.template.json
  *
  * 数据来源:
- *   - Snore_Det_esp 分支: INMP441 麦克风 (GPIO14/15/32 I2S)
+ *   - Snore_Det 分支: INMP441 麦克风 (GPIO16/15/17 I2S)
  *     → PhysicsSnoreEdgeModel 推理 → probability per 5s window
  *   - windows[].probability 是模型直接输出（唯一核心字段）
  *   - summary 所有字段都是基于 probability + threshold 直接计算
- *   - decision_threshold: Snore_Det_esp 实测 ≈0.44, 训练端定为 0.46
+ *   - decision_threshold: softmax snore probability >= 0.5
  */
 typedef struct {
     /* ── 顶层计算参数 ─────────────────────────── */
@@ -87,7 +87,7 @@ typedef struct {
  *   extern QueueHandle_t g_feature_queue;
  *
  *   snore_features_t feat = {
- *       // 鼾声数据 (Snore_Det_esp 推理结果汇总)
+ *       // 鼾声数据 (Snore_Det 推理结果汇总)
  *       .window_seconds         = 5.0,
  *       .hop_seconds            = 5.0,
  *       .decision_threshold     = 0.44,

@@ -6,9 +6,9 @@
 
 ```
 ┌─────────────────────┐    ┌──────────────────────┐
-│  Snore_Det_esp      │    │  Posture_Recognition │
+│  Snore_Det          │    │  Posture_Recognition │
 │  INMP441 麦克风     │    │  FSR×3 压力传感器    │
-│  GPIO14/15/32 (I2S) │    │  GPIO4/5/6 (ADC)     │
+│  GPIO16/15/17 (I2S) │    │  GPIO4/5/6 (ADC)     │
 │  → 鼾声概率 0~1     │    │  → 睡姿分类+置信度  │
 └────────┬────────────┘    └────────┬─────────────┘
          │                          │
@@ -40,7 +40,7 @@
 | 4, 5, 6 | FSR 压力传感器 (ADC) | Posture_Recognition |
 | 7, 8 | 左/右气泵 (MOS驱动) | airbag-hardware |
 | 9, 10 | 左/右电磁阀 (AO3400A) | airbag-hardware |
-| 14, 15, 32 | INMP441 I2S 麦克风 | Snore_Det_esp |
+| 16, 15, 17 | INMP441 I2S 麦克风 | Snore_Det |
 
 ## 数据合约
 
@@ -114,7 +114,7 @@ idf.py -p COMx flash monitor
 extern QueueHandle_t g_feature_queue;
 
 snore_features_t feat = {
-    // 鼾声 (从 Snore_Det_esp 累积)
+    // 鼾声 (从 Snore_Det 累积)
     .window_seconds = 5.0, .hop_seconds = 5.0,
     .decision_threshold = 0.44,
     .window_count = ..., .mean_probability = ...,

@@ -2,7 +2,7 @@
  * cloud_llm_client.c — 火山引擎边缘智能 API 客户端
  *
  * 全流程整合:
- *   - 鼾声数据: Snore_Det_esp 分支 (INMP441 → 模型推理 → summary)
+ *   - 鼾声数据: Snore_Det 分支 (INMP441 → 模型推理 → summary)
  *   - 睡姿数据: Posture_Recognition 分支 (FSR×3 → 规则分类)
  *   - 气泵控制: airbag-hardware 分支 (左/右独立, GPIO7/8/9/10)
  *
@@ -126,7 +126,7 @@ static char *build_request_json(const snore_features_t *feat)
     char user_content[768];
     snprintf(user_content, sizeof(user_content),
         "传感器综合数据：\n\n"
-        "【鼾声检测】(Snore_Det_esp: INMP441麦克风 → PhysicsSnoreEdgeModel)\n"
+        "【鼾声检测】(Snore_Det: INMP441麦克风 → ESP-DL模型)\n"
         "窗口: %.1f秒, 步长: %.1f秒, 阈值: %.4f\n"
         "是否检测到鼾声: %s\n"
         "窗口总数: %d\n"

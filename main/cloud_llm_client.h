@@ -40,7 +40,7 @@ typedef struct {
  * 将鼾声+睡姿综合数据发送给云端 LLM，获取睡眠分析报告和气泵控制指令。
  *
  * 数据来源:
- *   - 鼾声: Snore_Det_esp 分支 (INMP441 → PhysicsSnoreEdgeModel → probability)
+ *   - 鼾声: Snore_Det 分支 (INMP441 → ESP-DL → probability)
  *   - 睡姿: Posture_Recognition 分支 (FSR×3 → 规则分类 → posture + confidence)
  *   - 气泵: airbag-hardware 分支 (左/右独立气泵+电磁阀, GPIO7/8/9/10)
  *

@@ -3,7 +3,7 @@
  *
  * 全流程整合:
  *   1. BLE WiFi 配网: 开机 BLE 广播 → 手机发送 WiFi 凭据 → 连接 WiFi
- *   2. Snore_Det_esp: INMP441麦克风(GPIO14/15/32) → 鼾声模型推理 → probability
+ *   2. Snore_Det: INMP441麦克风(GPIO16/15/17) → 鼾声模型推理 → probability
  *   3. Posture_Recognition: FSR×3压力传感器(GPIO4/5/6) → 睡姿分类
  *   4. 睡眠会话管理: 检测压力出现/消失 → 累积整晚数据
  *   5. 实时气泵控制: 本地规则判断 → 充气/放气
@@ -22,7 +22,7 @@
  *   GPIO4/5/6   - FSR 压力传感器 ADC (Posture_Recognition)
  *   GPIO7/8     - 左/右气泵 MOS驱动 (airbag-hardware)
  *   GPIO9/10    - 左/右电磁阀 AO3400A (airbag-hardware)
- *   GPIO14/15/32 - INMP441 I2S 麦克风 (Snore_Det_esp)
+ *   GPIO16/15/17 - INMP441 I2S 麦克风 (Snore_Det)
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -41,6 +41,7 @@
 #include "pump_rules.h"
 #include "ble_uart_server.h"
 #include "posture_sensor.h"
+#include "snore_detector.h"
 #include "sleep_session.h"
 
 static const char *TAG = "MAIN";
@@ -168,19 +169,67 @@ static void pump_task(void *arg)
  * five-second aggregation. Until then, every verified posture frame still
  * reaches the session manager through the same production queue.
  */
-static void posture_feature_task(void *arg)
+static void feature_aggregator_task(void *arg)
 {
     posture_data_t posture;
+    snore_reading_t latest_snore = { .window_seconds = 2.04f };
+    bool has_snore_window = false;
+    bool was_on_pillow = false;
+    int window_count = 0;
+    int positive_window_count = 0;
+    float probability_sum = 0.0f;
+    float max_probability = 0.0f;
 
     while (true) {
         if (!posture_sensor_receive(&posture, portMAX_DELAY)) {
             continue;
         }
 
+        snore_reading_t reading;
+        while (snore_detector_receive(&reading, 0)) {
+            latest_snore = reading;
+            has_snore_window = true;
+            window_count++;
+            probability_sum += reading.probability;
+            if (reading.probability > max_probability) {
+                max_probability = reading.probability;
+            }
+            if (reading.detected) {
+                positive_window_count++;
+            }
+        }
+
+        const bool on_pillow = posture.total_pressure >= 50.0f;
+        if (on_pillow && !was_on_pillow) {
+            window_count = 0;
+            positive_window_count = 0;
+            probability_sum = 0.0f;
+            max_probability = 0.0f;
+            has_snore_window = false;
+        }
+        was_on_pillow = on_pillow;
+
+        const float total_window_seconds = window_count * latest_snore.window_seconds;
+        const float positive_duration_seconds =
+            positive_window_count * latest_snore.window_seconds;
+        const float positive_duration_minutes = positive_duration_seconds / 60.0f;
+        const float elapsed_hours = total_window_seconds / 3600.0f;
+
         snore_features_t feature = {
-            .window_seconds = 5.0f,
-            .hop_seconds = 5.0f,
-            .decision_threshold = 0.44f,
+            .window_seconds = latest_snore.window_seconds,
+            .hop_seconds = latest_snore.window_seconds,
+            .decision_threshold = 0.5f,
+            .window_count = window_count,
+            .mean_probability = window_count > 0 ? probability_sum / window_count : 0.0f,
+            .max_probability = max_probability,
+            .positive_window_count = positive_window_count,
+            .positive_window_ratio = window_count > 0
+                ? (float)positive_window_count / window_count : 0.0f,
+            .positive_duration_seconds = positive_duration_seconds,
+            .positive_duration_minutes = positive_duration_minutes,
+            .snore_detected = has_snore_window && latest_snore.detected,
+            .snore_minutes_per_hour = elapsed_hours > 0.0f
+                ? positive_duration_minutes / elapsed_hours : 0.0f,
             .posture = posture,
             .timestamp_ms = esp_timer_get_time() / 1000,
         };
@@ -250,7 +299,7 @@ void app_main(void)
     ESP_LOGI(TAG, "║  ESP32 智能防鼾睡姿调节系统 v5.0    ║");
     ESP_LOGI(TAG, "╠══════════════════════════════════════╣");
     ESP_LOGI(TAG, "║  配网: BLE WiFi Provisioning        ║");
-    ESP_LOGI(TAG, "║  鼾声: Snore_Det_esp (INMP441)      ║");
+    ESP_LOGI(TAG, "║  鼾声: Snore_Det (INMP441)          ║");
     ESP_LOGI(TAG, "║  睡姿: Posture_Recognition (FSR×3)  ║");
     ESP_LOGI(TAG, "║  控制: 本地规则实时气泵             ║");
     ESP_LOGI(TAG, "║  分析: 睡眠结束后 LLM (VolcEngine)  ║");
@@ -260,7 +309,7 @@ void app_main(void)
     ESP_LOGI(TAG, "");
 
     ESP_LOGI(TAG, "GPIO 分配:");
-    ESP_LOGI(TAG, "  传感: FSR ADC=GPIO4/5/6, INMP441 I2S=GPIO14/15/32");
+    ESP_LOGI(TAG, "  传感: FSR ADC=GPIO4/5/6, INMP441 I2S=GPIO16/15/17");
     ESP_LOGI(TAG, "  执行: 泵=GPIO7/8, 阀=GPIO9/10");
 
     /* ── 1. 初始化 WiFi 子系统（不连接）────────────── */
@@ -338,14 +387,21 @@ void app_main(void)
         ESP_LOGE(TAG, "FSR posture sensor initialization failed: %s", esp_err_to_name(ret));
         return;
     }
-    xTaskCreate(posture_feature_task, "posture_feature", 4096, NULL, 3, NULL);
-    ESP_LOGI(TAG, "✅ cloud, pump, and posture tasks started");
+    ret = snore_detector_start();
+    if (ret == ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "Snore model unavailable; running posture-only mode");
+    } else if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Snore detector initialization failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    xTaskCreate(feature_aggregator_task, "feature_aggregator", 4096, NULL, 3, NULL);
+    ESP_LOGI(TAG, "✅ cloud, pump, posture, and feature tasks started");
 
     /*
      * 传感器数据来源 (两人分工):
      *
-     * [鼾声组员] — Snore_Det_esp 分支
-     *   INMP441 麦克风 (GPIO14/15/32) → 模型推理 → probability
+     * [鼾声组员] — Snore_Det 分支
+     *   INMP441 麦克风 (GPIO16/15/17) → 模型推理 → probability
      *   每 5 秒汇总一次，累积到 summary 统计
      *
      * [睡姿组员] — Posture_Recognition 分支

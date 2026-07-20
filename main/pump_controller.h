@@ -8,7 +8,7 @@
  *   - 双电池分轨供电, 共地
  *
  * 注意: GPIO4/5/6 已被 Posture_Recognition 分支占用 (FSR 压力传感器 ADC)
- *       GPIO14/15/32 已被 Snore_Det_esp 分支占用 (INMP441 I2S 麦克风)
+ *       GPIO16/15/17 已被 Snore_Det 分支占用 (INMP441 I2S 麦克风)
  */
 #ifndef PUMP_CONTROLLER_H
 #define PUMP_CONTROLLER_H
