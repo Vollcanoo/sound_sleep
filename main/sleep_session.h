@@ -39,7 +39,7 @@ typedef struct {
     float    snore_minutes_per_hour;/* 每小时鼾声分钟数 */
 
     /* 姿态分布 */
-    int      posture_seconds[7];    /* 各姿态累计秒数，索引对应 posture_t */
+    int      posture_seconds[POSTURE_COUNT]; /* Seconds per supported posture */
     int      posture_change_count;  /* 姿态变化次数（翻身）*/
     posture_t dominant_posture;     /* 占比最大的姿态 */
 

@@ -49,7 +49,7 @@ static const char *SYSTEM_PROMPT =
     "- snore_detected: 是否检测到鼾声\n"
     "- snore_minutes_per_hour: 每小时鼾声分钟数\n\n"
     "睡姿数据说明：\n"
-    "- posture: 当前睡姿 (SUPINE=仰卧, LEFT_SIDE=左侧卧, RIGHT_SIDE=右侧卧, PRONE=俯卧, MOVING=翻身中, NO_HEAD=不在枕上)\n"
+    "- posture: 当前睡姿 (SUPINE=仰卧, LEFT_SIDE=左侧卧, RIGHT_SIDE=右侧卧, MOVING=翻身中, NO_HEAD=不在枕上)\n"
     "- confidence: 睡姿判定置信度 (0-1)\n"
     "- x_center_cm: 头部左右偏移 (负=偏左, 正=偏右)\n\n"
     "决策规则：\n"
@@ -61,7 +61,6 @@ static const char *SYSTEM_PROMPT =
     "- 右侧卧 + 鼾声严重 → action=inflate, zone=right（充气右侧促使左侧卧），intensity 50-70\n"
     "- max_probability>0.9 且 positive_window_ratio>0.1 → 鼾声非常严重，intensity 70-80\n"
     "- 翻身中(MOVING) → action=hold（等待稳定）\n"
-    "- 俯卧(PRONE) → action=hold（俯卧通常不鼾）\n"
     "- 头不在枕上(NO_HEAD) → action=hold\n"
     "- confidence<0.5 → 睡姿不确定，保守处理，降低 intensity\n"
     "- duration_sec 按 intensity 比例在 5-20 秒区间调节";
@@ -139,7 +138,7 @@ static char *build_request_json(const snore_features_t *feat)
         "【睡姿识别】(Posture_Recognition: FSR×3压力传感器)\n"
         "当前睡姿: %s (%s)\n"
         "置信度: %.2f\n"
-        "头部偏移: X=%.2fcm (负=偏左, 正=偏右), Y=%.2fcm\n",
+        "头部偏移: X=%.2fcm (负=偏左, 正=偏右)\n",
         feat->window_seconds,
         feat->hop_seconds,
         feat->decision_threshold,
@@ -156,8 +155,7 @@ static char *build_request_json(const snore_features_t *feat)
         posture_name(feat->posture.posture),
         posture_name_cn(feat->posture.posture),
         feat->posture.confidence,
-        feat->posture.x_center_cm,
-        feat->posture.y_center_cm);
+        feat->posture.x_center_cm);
 
     cJSON *user_msg = cJSON_CreateObject();
     cJSON_AddStringToObject(user_msg, "role", "user");

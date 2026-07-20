@@ -68,16 +68,8 @@ void pump_evaluate_local_rule(const snore_features_t *feat, pump_command_t *cmd_
         ESP_LOGI(TAG, "翻身中(MOVING) → hold (等待稳定)");
         return;
     }
-    if (p == POSTURE_PRONE) {
-        ESP_LOGI(TAG, "俯卧(PRONE) → hold (俯卧通常不鼾)");
-        return;
-    }
     if (p == POSTURE_NO_HEAD) {
         ESP_LOGI(TAG, "头不在枕上(NO_HEAD) → hold");
-        return;
-    }
-    if (p == POSTURE_UNCERTAIN) {
-        ESP_LOGI(TAG, "睡姿不确定(UNCERTAIN) → hold");
         return;
     }
 

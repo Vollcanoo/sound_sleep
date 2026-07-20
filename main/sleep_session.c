@@ -44,8 +44,8 @@ static int      s_snore_event_count;
 
 /* ── 姿态累积 ────────────────────────────────────────── */
 
-/** 各姿态累计秒数，索引对应 posture_t (0-6) */
-static int      s_posture_seconds[7];
+/** 各姿态累计秒数，索引对应 posture_t */
+static int      s_posture_seconds[POSTURE_COUNT];
 /** 姿态变化次数 */
 static int      s_posture_change_count;
 /** 上一次有效姿态（用于检测翻身） */
@@ -65,11 +65,9 @@ static inline int64_t now_ms(void)
 }
 
 /** 计算总压力值 */
-static inline int total_pressure(const snore_features_t *feat)
+static inline float total_pressure(const snore_features_t *feat)
 {
-    return feat->posture.raw_left
-         + feat->posture.raw_center
-         + feat->posture.raw_right;
+    return feat->posture.total_pressure;
 }
 
 /** 计算睡眠评分（简化版，对齐 Flutter sleep_record_generator.dart） */
@@ -135,7 +133,7 @@ void session_on_data(const snore_features_t *feat)
             s_pressure_present = true;
             s_bed_time_ms      = now;
             s_has_last_posture = false;
-            ESP_LOGI(TAG, "Session started — bed_time=%lld ms, pressure=%d",
+            ESP_LOGI(TAG, "Session started — bed_time=%lld ms, pressure=%.1f",
                      (long long)s_bed_time_ms, total_pressure(feat));
         }
         return;   /* 无压力且无会话，忽略 */
@@ -167,7 +165,7 @@ void session_on_data(const snore_features_t *feat)
 
     /* 姿态累积（传感器 1 Hz，每次约 1 秒） */
     posture_t cur_posture = feat->posture.posture;
-    if (cur_posture >= 0 && cur_posture <= 6) {
+    if (cur_posture >= 0 && cur_posture < POSTURE_COUNT) {
         s_posture_seconds[cur_posture]++;
     }
 
@@ -238,8 +236,8 @@ sleep_session_summary_t session_get_summary(void)
 
     /* 主要姿态 = 累计秒数最多的 */
     int max_sec = 0;
-    summary.dominant_posture = POSTURE_UNCERTAIN;
-    for (int i = 0; i < 7; i++) {
+    summary.dominant_posture = POSTURE_NO_HEAD;
+    for (int i = 0; i < POSTURE_COUNT; i++) {
         if (s_posture_seconds[i] > max_sec) {
             max_sec = s_posture_seconds[i];
             summary.dominant_posture = (posture_t)i;
@@ -272,7 +270,7 @@ void session_reset(void)
 
     memset(s_posture_seconds, 0, sizeof(s_posture_seconds));
     s_posture_change_count = 0;
-    s_last_posture         = POSTURE_UNCERTAIN;
+    s_last_posture         = POSTURE_NO_HEAD;
     s_has_last_posture     = false;
 
     memset(&s_last_features, 0, sizeof(s_last_features));

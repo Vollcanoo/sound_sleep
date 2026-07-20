@@ -13,7 +13,7 @@
  *   - 右侧卧 + 鼾声严重 → inflate right, intensity 50-70
  *   - max_prob>0.9 且 ratio>0.1 → 非常严重, intensity 70-80
  *   - 翻身中(MOVING) → hold
- *   - 俯卧/不在枕上 → hold
+ *   - 不在枕上 → hold
  *   - confidence<0.5 → 保守, 降低 intensity
  */
 #ifndef PUMP_RULES_H

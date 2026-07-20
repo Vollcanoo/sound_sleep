@@ -516,10 +516,9 @@ static const char *posture_to_cloud_string(posture_t p)
         case POSTURE_SUPINE:     return "supine";
         case POSTURE_LEFT_SIDE:  return "leftSide";
         case POSTURE_RIGHT_SIDE: return "rightSide";
-        case POSTURE_PRONE:      return "prone";
         case POSTURE_MOVING:     return "moving";
         case POSTURE_NO_HEAD:    return "noHead";
-        default:                 return "uncertain";
+        default:                 return "noHead";
     }
 }
 

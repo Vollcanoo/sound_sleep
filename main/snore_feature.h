@@ -20,29 +20,29 @@ typedef enum {
     POSTURE_LEFT_SIDE  = 2,   /* 左侧卧 */
     POSTURE_RIGHT_SIDE = 3,   /* 右侧卧 */
     POSTURE_SUPINE     = 4,   /* 仰卧 */
-    POSTURE_PRONE      = 5,   /* 俯卧 (识别较弱, 置信度 ~0.45) */
-    POSTURE_UNCERTAIN  = 6,   /* 无法判定 */
+    POSTURE_COUNT      = 5,
 } posture_t;
 
 /**
  * 睡姿数据 — 从 Posture_Recognition 分支获取
  *
- * 前 6 个字段 (raw/median) 同时用于 BLE CSV 输出给手机 App。
- * 对齐 frontier 分支 PostureReading.fromCsv() 的 15 列格式。
+ * Field names and ordering match the 14-column Posture_Recognition CSV.
  */
 typedef struct {
-    posture_t posture;           /* 睡姿分类 */
-    float     confidence;        /* 分类置信度 0.0-1.0 */
-    float     x_center_cm;       /* 压力重心 X 偏移 (cm), 负=偏左, 正=偏右 */
-    float     y_center_cm;       /* 压力重心 Y 偏移 (cm), 正=偏头侧, 负=偏肩侧 */
-
-    /* ── BLE CSV 所需的压力传感器原始/滤波值 ─── */
     int       raw_left;          /* FSR 左 ADC 原始值 (0-4095) */
     int       raw_center;        /* FSR 中 ADC 原始值 */
     int       raw_right;         /* FSR 右 ADC 原始值 */
-    float     median_left;       /* 中值滤波后 左 */
-    float     median_center;     /* 中值滤波后 中 */
-    float     median_right;      /* 中值滤波后 右 */
+    float     median_left;       /* Baseline-subtracted median pressure */
+    float     median_center;
+    float     median_right;
+    float     total_pressure;
+    float     left_ratio;
+    float     center_ratio;
+    float     right_ratio;
+    float     x_center_cm;       /* Pressure center: negative left, positive right */
+    bool      moving;
+    posture_t posture;
+    float     confidence;
 } posture_data_t;
 
 /**
@@ -102,10 +102,13 @@ typedef struct {
  *       .snore_minutes_per_hour = ...,
  *       // 睡姿数据 (Posture_Recognition 最新一帧)
  *       .posture = {
- *           .posture    = POSTURE_SUPINE,
- *           .confidence = 0.85,
- *           .x_center_cm = 0.12,
- *           .y_center_cm = 0.31,
+ *           .raw_left = 320, .raw_center = 650, .raw_right = 310,
+ *           .median_left = 315.0f, .median_center = 645.0f,
+ *           .median_right = 305.0f, .total_pressure = 1265.0f,
+ *           .left_ratio = 0.249f, .center_ratio = 0.510f,
+ *           .right_ratio = 0.241f, .x_center_cm = 0.12f,
+ *           .moving = false, .posture = POSTURE_SUPINE,
+ *           .confidence = 0.85f,
  *       },
  *   };
  *   xQueueSend(g_feature_queue, &feat, portMAX_DELAY);
@@ -122,8 +125,7 @@ static inline const char *posture_name(posture_t p) {
         case POSTURE_LEFT_SIDE:  return "LEFT_SIDE";
         case POSTURE_RIGHT_SIDE: return "RIGHT_SIDE";
         case POSTURE_SUPINE:     return "SUPINE";
-        case POSTURE_PRONE:      return "PRONE";
-        default:                 return "UNCERTAIN";
+        default:                 return "NO_HEAD";
     }
 }
 
@@ -137,8 +139,7 @@ static inline const char *posture_name_cn(posture_t p) {
         case POSTURE_LEFT_SIDE:  return "左侧卧";
         case POSTURE_RIGHT_SIDE: return "右侧卧";
         case POSTURE_SUPINE:     return "仰卧";
-        case POSTURE_PRONE:      return "俯卧";
-        default:                 return "未知";
+        default:                 return "头不在枕上";
     }
 }
 

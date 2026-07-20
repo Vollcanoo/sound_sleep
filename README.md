@@ -49,7 +49,7 @@
 - Summary 9 字段：`window_count`, `mean_probability`, `max_probability`, `positive_window_count`, `positive_window_ratio`, `positive_duration_seconds/minutes`, `snore_detected`, `snore_minutes_per_hour`
 
 ### 睡姿数据 (对齐 Posture_Recognition)
-- `posture`: 枚举 (SUPINE/LEFT_SIDE/RIGHT_SIDE/PRONE/MOVING/NO_HEAD/UNCERTAIN)
+- `posture`: 枚举 (SUPINE/LEFT_SIDE/RIGHT_SIDE/MOVING/NO_HEAD)
 - `confidence`: 0.0~1.0
 - `x_center_cm`: 头部左右偏移 (负=偏左, 正=偏右)
 
@@ -115,8 +115,12 @@ snore_features_t feat = {
     .posture = {
         .posture = POSTURE_SUPINE,
         .confidence = 0.85,
-        .x_center_cm = 0.12,
-        .y_center_cm = 0.31,
+        .raw_left = 320, .raw_center = 650, .raw_right = 310,
+        .median_left = 315.0, .median_center = 645.0,
+        .median_right = 305.0, .total_pressure = 1265.0,
+        .left_ratio = 0.249, .center_ratio = 0.510,
+        .right_ratio = 0.241, .x_center_cm = 0.12,
+        .moving = false,
     },
 };
 xQueueSend(g_feature_queue, &feat, portMAX_DELAY);
@@ -146,13 +150,13 @@ python test_llm_api.py
 | TX (ESP32→手机 Notify) | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
 | RX (手机→ESP32 Write) | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
 
-### CSV 数据格式 (15 字段, '\n' 结尾)
+### CSV 数据格式 (14 字段, '\n' 结尾)
 
 ```
-raw_left,raw_center,raw_right,median_left,median_center,median_right,total,left_ratio,center_ratio,right_ratio,x_cm,y_cm,moving,posture,confidence
+raw_left,raw_center,raw_right,median_pressure_left,median_pressure_center,median_pressure_right,total_pressure,left_ratio,center_ratio,right_ratio,x_center_cm,moving,posture,confidence
 ```
 
-示例: `320,650,310,315.0,645.0,305.0,1265.0,0.2490,0.5099,0.2411,0.12,0.31,0,SUPINE,0.8200`
+示例: `320,650,310,315.0,645.0,305.0,1265.0,0.2490,0.5099,0.2411,0.12,0,SUPINE,0.8200`
 
 ### App 显示内容
 
