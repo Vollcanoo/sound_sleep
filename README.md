@@ -53,11 +53,20 @@
 - `confidence`: 0.0~1.0
 - `x_center_cm`: 头部左右偏移 (负=偏左, 正=偏右)
 
+### FSR Runtime Module
+
+`main/posture_sensor.c` reads GPIO4/GPIO5/GPIO6 with the ESP-IDF ADC One-Shot
+driver. It performs unloaded-baseline calibration at startup, samples at 10Hz,
+uses a 31-sample median window, and publishes the current posture at 1Hz.
+The supported outputs are `NO_HEAD`, `MOVING`, `LEFT_SIDE`, `RIGHT_SIDE`, and
+`SUPINE`.
+
 ## 文件说明
 
 | 文件 | 职责 |
 |------|------|
 | `main.c` | FreeRTOS 任务调度，BLE CSV 发送，4 场景 mock 测试 |
+| `posture_sensor.h/c` | FSR ADC sampling, calibration, median filtering, and posture classification |
 | `snore_feature.h` | 数据结构 (鼾声+睡姿+压力原始值，对齐各分支) |
 | `cloud_llm_client.h/c` | 火山引擎 LLM API 客户端 |
 | `wifi_manager.h/c` | Wi-Fi STA 连接管理 |

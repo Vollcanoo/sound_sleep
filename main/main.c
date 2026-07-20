@@ -40,6 +40,7 @@
 #include "pump_controller.h"
 #include "pump_rules.h"
 #include "ble_uart_server.h"
+#include "posture_sensor.h"
 #include "sleep_session.h"
 
 static const char *TAG = "MAIN";
@@ -158,6 +159,34 @@ static void pump_task(void *arg)
             ESP_LOGI(TAG, "🔧 执行气泵指令: %s %s (强度%d%%, %ds)",
                      cmd.action, cmd.zone, cmd.intensity, cmd.duration_sec);
             pump_execute_command(&cmd);
+        }
+    }
+}
+
+/*
+ * The snore module will later replace the zero-valued snore fields with its
+ * five-second aggregation. Until then, every verified posture frame still
+ * reaches the session manager through the same production queue.
+ */
+static void posture_feature_task(void *arg)
+{
+    posture_data_t posture;
+
+    while (true) {
+        if (!posture_sensor_receive(&posture, portMAX_DELAY)) {
+            continue;
+        }
+
+        snore_features_t feature = {
+            .window_seconds = 5.0f,
+            .hop_seconds = 5.0f,
+            .decision_threshold = 0.44f,
+            .posture = posture,
+            .timestamp_ms = esp_timer_get_time() / 1000,
+        };
+
+        if (xQueueSend(g_feature_queue, &feature, pdMS_TO_TICKS(100)) != pdTRUE) {
+            ESP_LOGW(TAG, "Feature queue full; posture frame dropped");
         }
     }
 }
@@ -304,7 +333,13 @@ void app_main(void)
     /* 启动工作任务 */
     xTaskCreate(cloud_task, "cloud", 16384, NULL, 3, NULL);
     xTaskCreate(pump_task,  "pump",  4096,  NULL, 4, NULL);
-    ESP_LOGI(TAG, "✅ cloud_task 和 pump_task 已启动");
+    ret = posture_sensor_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "FSR posture sensor initialization failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    xTaskCreate(posture_feature_task, "posture_feature", 4096, NULL, 3, NULL);
+    ESP_LOGI(TAG, "✅ cloud, pump, and posture tasks started");
 
     /*
      * 传感器数据来源 (两人分工):

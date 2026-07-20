@@ -25,6 +25,7 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "ble_uart_server.h"
+#include "posture_sensor.h"
 #include "wifi_provision.h"
 
 static const char *TAG = "BLE_UART";
@@ -77,7 +78,7 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
             /* 单字节控制指令 */
             else if (buf[0] == 'b' || buf[0] == 'B') {
                 ESP_LOGI(TAG, "收到校准指令 'b'");
-                /* TODO: 设置全局标志触发传感器重校准 */
+                posture_sensor_request_calibration();
             }
             else {
                 ESP_LOGW(TAG, "未识别的指令: %s", buf);
