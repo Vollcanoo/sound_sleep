@@ -39,34 +39,6 @@ class ReportListScreen extends StatelessWidget {
             )
           : Column(
               children: [
-                // 报告生成说明卡片
-                Container(
-                  margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryBlue.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppTheme.primaryBlue.withValues(alpha: 0.15),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline,
-                          size: 18, color: AppTheme.primaryBlue),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '每次从感受到压力到压力消失，自动生成一份报告',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
                 // 列表
                 Expanded(
                   child: ListView.builder(

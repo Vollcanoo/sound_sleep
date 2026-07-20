@@ -13,8 +13,8 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController(text: 'test');
-  final _passwordController = TextEditingController(text: '123456');
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _obscurePassword = true;
 
   @override
@@ -165,30 +165,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 20),
-                // Hint
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.lightBlue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, size: 18, color: AppTheme.primaryBlue),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '测试账号: test / 123456',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ],
             ),
