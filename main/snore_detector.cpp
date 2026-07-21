@@ -10,6 +10,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "log_mel.hpp"
+#include "monitor_control.h"
 #include "snore_detector.h"
 
 extern const uint8_t snoring_esp32_int8_espdl[]
@@ -73,11 +74,17 @@ void snore_task(void *arg)
     }
 
     while (true) {
+        if (!monitor_control_is_enabled()) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
+
         if (microphone.capture(pcm, snore::kCaptureSamples) == ESP_OK &&
             extractor.extract(pcm, snore::kCaptureSamples, log_mel) == ESP_OK) {
             snore_reading_t reading = {
                 .probability = model.probability(log_mel),
                 .window_seconds = static_cast<float>(snore::kCaptureSamples) / snore::kSampleRate,
+                .detected = false,
             };
             reading.detected = reading.probability >= 0.5F;
             xQueueOverwrite(s_result_queue, &reading);

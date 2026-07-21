@@ -28,6 +28,9 @@ static int64_t  s_bed_time_ms;
 static int64_t  s_wake_time_ms;
 /** 最后一次数据到达的时间（毫秒） */
 static int64_t  s_last_data_ms;
+static int64_t  s_last_pressure_ms;
+static int64_t  s_pressure_lost_ms;
+static int      s_get_up_count;
 
 /* ── 鼾声累积 ────────────────────────────────────────── */
 
@@ -132,6 +135,8 @@ void session_on_data(const snore_features_t *feat)
             s_ended            = false;
             s_pressure_present = true;
             s_bed_time_ms      = now;
+            s_last_pressure_ms = now;
+            s_pressure_lost_ms = 0;
             s_has_last_posture = false;
             ESP_LOGI(TAG, "Session started — bed_time=%lld ms, pressure=%.1f",
                      (long long)s_bed_time_ms, total_pressure(feat));
@@ -145,6 +150,34 @@ void session_on_data(const snore_features_t *feat)
     }
 
     /* ── 活跃会话处理 ────────────────────────────────── */
+
+    if (!pressure_now) {
+        if (s_pressure_present) {
+            s_pressure_present = false;
+            s_pressure_lost_ms = now;
+            ESP_LOGI(TAG, "Pressure lost; waiting before ending session");
+        }
+
+        if (now - s_pressure_lost_ms >= SESSION_END_TIMEOUT_MS) {
+            s_wake_time_ms = s_last_pressure_ms;
+            s_ended = true;
+            ESP_LOGI(TAG, "Session ended after %.1f min without pressure",
+                     (now - s_pressure_lost_ms) / 60000.0f);
+        }
+        return;
+    }
+
+    if (!s_pressure_present) {
+        const int64_t absence_ms = now - s_pressure_lost_ms;
+        if (absence_ms >= SESSION_GET_UP_TIMEOUT_MS) {
+            s_get_up_count++;
+        }
+        s_pressure_present = true;
+        s_pressure_lost_ms = 0;
+        ESP_LOGI(TAG, "Pressure restored after %.1f s", absence_ms / 1000.0f);
+    }
+
+    s_last_pressure_ms = now;
 
     if (!pressure_now && s_pressure_present) {
         /* 压力从有→无: 立刻结束会话 */
@@ -204,6 +237,12 @@ bool session_is_active(void)
     return s_active && !s_ended;
 }
 
+bool session_is_reportable(void)
+{
+    return s_ended &&
+           (s_last_pressure_ms - s_bed_time_ms) >= SESSION_MIN_REPORT_MS;
+}
+
 sleep_session_summary_t session_get_summary(void)
 {
     sleep_session_summary_t summary;
@@ -211,7 +250,7 @@ sleep_session_summary_t session_get_summary(void)
 
     summary.bed_time_ms  = s_bed_time_ms;
     summary.wake_time_ms = s_wake_time_ms > 0 ? s_wake_time_ms : s_last_data_ms;
-    summary.get_up_count = 0;
+    summary.get_up_count = s_get_up_count;
 
     /* 时长 */
     int64_t duration_ms  = summary.wake_time_ms - summary.bed_time_ms;
@@ -261,6 +300,9 @@ void session_reset(void)
     s_bed_time_ms      = 0;
     s_wake_time_ms     = 0;
     s_last_data_ms     = 0;
+    s_last_pressure_ms = 0;
+    s_pressure_lost_ms = 0;
+    s_get_up_count     = 0;
 
     s_total_snore_minutes = 0.0f;
     s_max_snore_prob      = 0.0f;

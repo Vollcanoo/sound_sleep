@@ -20,6 +20,9 @@
 
 /* 压力检测阈值 — 较低值确保轻压力也能检测到 */
 #define PRESSURE_PRESENT_THRESHOLD  50
+#define SESSION_GET_UP_TIMEOUT_MS   (15 * 1000)
+#define SESSION_END_TIMEOUT_MS      (5 * 60 * 1000)
+#define SESSION_MIN_REPORT_MS       (5 * 60 * 1000)
 
 /**
  * 睡眠会话汇总数据 — 用于 LLM prompt 和云端上传
@@ -69,6 +72,9 @@ bool session_is_ended(void);
  * 检查当前是否有活跃的睡眠会话
  */
 bool session_is_active(void);
+
+/** Returns true only for a long enough completed session. */
+bool session_is_reportable(void);
 
 /**
  * 获取当前会话的汇总数据（用于 LLM 分析和云端上传）。

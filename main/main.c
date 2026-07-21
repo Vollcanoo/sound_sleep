@@ -40,6 +40,7 @@
 #include "pump_controller.h"
 #include "pump_rules.h"
 #include "ble_uart_server.h"
+#include "monitor_control.h"
 #include "posture_sensor.h"
 #include "snore_detector.h"
 #include "sleep_session.h"
@@ -73,9 +74,25 @@ static void cloud_task(void *arg)
 
     /* 初始化睡眠会话管理器 */
     session_init();
+    bool monitoring_active = false;
 
     while (1) {
         if (xQueueReceive(g_feature_queue, &feat, portMAX_DELAY) == pdTRUE) {
+            if (!monitor_control_is_enabled()) {
+                if (monitoring_active) {
+                    session_reset();
+                    ESP_LOGI(TAG, "Monitoring stopped; session cleared");
+                }
+                monitoring_active = false;
+                continue;
+            }
+
+            if (!monitoring_active) {
+                session_reset();
+                monitoring_active = true;
+                ESP_LOGI(TAG, "Monitoring started by BLE command");
+            }
+
             ESP_LOGD(TAG, "收到传感器数据: posture=%s snore=%s %.2f分/时",
                      posture_name(feat.posture.posture),
                      feat.snore_detected ? "是" : "否",
@@ -102,6 +119,12 @@ static void cloud_task(void *arg)
                 ESP_LOGI(TAG, "💤 睡眠会话结束！开始生成分析报告...");
 
                 sleep_session_summary_t summary = session_get_summary();
+
+                if (!session_is_reportable()) {
+                    ESP_LOGI(TAG, "Ignoring short test session; no cloud analysis or upload");
+                    session_reset();
+                    continue;
+                }
 
                 ESP_LOGI(TAG, "  时长: %d 分钟", summary.duration_minutes);
                 ESP_LOGI(TAG, "  起身: %d 次", summary.get_up_count);
@@ -175,6 +198,7 @@ static void feature_aggregator_task(void *arg)
     snore_reading_t latest_snore = { .window_seconds = 2.04f };
     bool has_snore_window = false;
     bool was_on_pillow = false;
+    bool monitoring_active = false;
     int window_count = 0;
     int positive_window_count = 0;
     float probability_sum = 0.0f;
@@ -183,6 +207,34 @@ static void feature_aggregator_task(void *arg)
     while (true) {
         if (!posture_sensor_receive(&posture, portMAX_DELAY)) {
             continue;
+        }
+
+        if (!monitor_control_is_enabled()) {
+            if (monitoring_active) {
+                /* Do not carry snore statistics into the next BLE session. */
+                latest_snore = (snore_reading_t){ .window_seconds = 2.04f };
+                has_snore_window = false;
+                was_on_pillow = false;
+                window_count = 0;
+                positive_window_count = 0;
+                probability_sum = 0.0f;
+                max_probability = 0.0f;
+                monitoring_active = false;
+                ESP_LOGI(TAG, "Feature aggregation paused");
+            }
+            continue;
+        }
+
+        if (!monitoring_active) {
+            latest_snore = (snore_reading_t){ .window_seconds = 2.04f };
+            has_snore_window = false;
+            was_on_pillow = false;
+            window_count = 0;
+            positive_window_count = 0;
+            probability_sum = 0.0f;
+            max_probability = 0.0f;
+            monitoring_active = true;
+            ESP_LOGI(TAG, "Feature aggregation started");
         }
 
         snore_reading_t reading;
@@ -234,8 +286,8 @@ static void feature_aggregator_task(void *arg)
             .timestamp_ms = esp_timer_get_time() / 1000,
         };
 
-        if (xQueueSend(g_feature_queue, &feature, pdMS_TO_TICKS(100)) != pdTRUE) {
-            ESP_LOGW(TAG, "Feature queue full; posture frame dropped");
+        if (xQueueOverwrite(g_feature_queue, &feature) != pdPASS) {
+            ESP_LOGW(TAG, "Unable to update latest feature frame");
         }
     }
 }
@@ -277,6 +329,8 @@ static esp_err_t ble_provision_loop(void)
             /* 连接成功，通知手机 */
             const char *ok_msg = "{\"status\":\"ok\",\"msg\":\"wifi_connected\"}";
             ble_uart_send(ok_msg, strlen(ok_msg));
+            // Keep BLE alive long enough for the notify packet to reach the app.
+            vTaskDelay(pdMS_TO_TICKS(1000));
             return ESP_OK;
         }
 
@@ -332,6 +386,9 @@ void app_main(void)
         return;
     }
 
+    /* Keep BLE available for monitoring control and re-binding. */
+    ble_uart_server_init();
+
     /* ── 4. 尝试使用 NVS 中已保存的 WiFi 凭据 ───── */
     bool wifi_connected = false;
 
@@ -356,7 +413,6 @@ void app_main(void)
     /* ── 5. 如果需要 BLE 配网 ────────────────────── */
     if (!wifi_connected) {
         ESP_LOGI(TAG, "进入 BLE 配网模式...");
-        ble_uart_server_init();
         ESP_LOGI(TAG, "✅ BLE 广播已开启 (设备名: SleepMonitor)");
 
         ret = ble_provision_loop();
@@ -368,11 +424,10 @@ void app_main(void)
     }
 
     /* ── 6. WiFi 已连接 → 停止 BLE，启动工作任务 ── */
-    ble_uart_server_stop();
-    ESP_LOGI(TAG, "🔇 BLE 已停止（节省功耗）");
+    ESP_LOGI(TAG, "BLE remains available for monitoring control");
 
     /* 创建队列 */
-    g_feature_queue = xQueueCreate(4, sizeof(snore_features_t));
+    g_feature_queue = xQueueCreate(1, sizeof(snore_features_t));
     s_cmd_queue     = xQueueCreate(4, sizeof(pump_command_t));
     if (!g_feature_queue || !s_cmd_queue) {
         ESP_LOGE(TAG, "队列创建失败！");

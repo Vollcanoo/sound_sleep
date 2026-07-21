@@ -20,3 +20,8 @@ main/secrets.h
 main/models/*.espdl
 lib/config/secrets.dart
 test_api.py
+
+# Local ESP-DL dependencies used for firmware builds
+Snore_Det/third_party/esp-dl/
+Snore_Det/third_party/esp-dsp/
+Snore_Det/third_party/esp_new_jpeg/

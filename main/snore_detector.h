@@ -11,6 +11,10 @@ typedef struct {
     bool detected;
 } snore_reading_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Starts the INMP441 capture and ESP-DL inference task when a model is present. */
 esp_err_t snore_detector_start(void);
 
@@ -19,5 +23,9 @@ bool snore_detector_receive(snore_reading_t *reading, TickType_t timeout);
 
 /* Returns true only when the INT8 ESP-DL model was embedded at build time. */
 bool snore_detector_is_available(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* SNORE_DETECTOR_H */

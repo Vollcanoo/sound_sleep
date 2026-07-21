@@ -25,6 +25,7 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "ble_uart_server.h"
+#include "monitor_control.h"
 #include "posture_sensor.h"
 #include "wifi_provision.h"
 
@@ -52,6 +53,7 @@ static uint16_t s_tx_attr_handle = 0;
 static bool     s_notify_enabled = false;
 static bool     s_ble_initialized = false;
 static bool     s_ble_stopped = false;
+static bool     s_advertising = false;
 
 /* ────────────────────────────────────────────────────
  *  GATT Access 回调
@@ -70,8 +72,19 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
             buf[copied] = '\0';
             ESP_LOGI(TAG, "RX 收到数据: %s (len=%d)", buf, copied);
 
+            if (strcmp(buf, "monitor_start") == 0) {
+                const char *reply = "{\"status\":\"ok\",\"msg\":\"monitor_started\"}";
+                monitor_control_set_enabled(true);
+                ble_uart_send(reply, strlen(reply));
+                ESP_LOGI(TAG, "Monitoring enabled by BLE");
+            } else if (strcmp(buf, "monitor_stop") == 0) {
+                const char *reply = "{\"status\":\"ok\",\"msg\":\"monitor_stopped\"}";
+                monitor_control_set_enabled(false);
+                ble_uart_send(reply, strlen(reply));
+                ESP_LOGI(TAG, "Monitoring disabled by BLE");
+            }
             /* JSON 数据 → 路由到 WiFi 配网处理 */
-            if (buf[0] == '{') {
+            else if (buf[0] == '{') {
                 ESP_LOGI(TAG, "检测到 JSON 数据，转发到配网处理...");
                 wifi_provision_handle_ble_data(buf, copied);
             }
@@ -132,8 +145,10 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
             s_conn_handle = event->connect.conn_handle;
+            s_advertising = false;
             ESP_LOGI(TAG, "📱 客户端已连接 (handle=%d)", s_conn_handle);
         } else {
+            s_advertising = false;
             ESP_LOGW(TAG, "连接失败, status=%d", event->connect.status);
             if (!s_ble_stopped) {
                 start_advertising();
@@ -145,6 +160,7 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "📱 客户端已断开 (reason=%d)", event->disconnect.reason);
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_notify_enabled = false;
+        s_advertising = false;
         if (!s_ble_stopped) {
             start_advertising();
         }
@@ -158,6 +174,7 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
         break;
 
     case BLE_GAP_EVENT_ADV_COMPLETE:
+        s_advertising = false;
         if (!s_ble_stopped) {
             start_advertising();
         }
@@ -180,6 +197,9 @@ static void start_advertising(void)
 {
     if (s_ble_stopped) {
         ESP_LOGD(TAG, "BLE 已停止，不启动广播");
+        return;
+    }
+    if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE || s_advertising) {
         return;
     }
 
@@ -221,6 +241,7 @@ static void start_advertising(void)
     if (rc != 0) {
         ESP_LOGE(TAG, "开始广播失败: %d", rc);
     } else {
+        s_advertising = true;
         ESP_LOGI(TAG, "📡 BLE 广播已开始: \"%s\"", DEVICE_NAME);
     }
 }
@@ -314,6 +335,7 @@ void ble_uart_server_stop(void)
 
     ESP_LOGI(TAG, "停止 BLE 广播...");
     s_ble_stopped = true;
+    s_advertising = false;
 
     /* 停止广播 */
     ble_gap_adv_stop();

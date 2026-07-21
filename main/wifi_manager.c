@@ -27,6 +27,7 @@ static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 static bool s_is_connected = false;
 static bool s_initialized = false;
+static bool s_wifi_started = false;
 static wifi_disconnect_cb_t s_disconnect_cb = NULL;
 
 /* Wi-Fi 和 IP 事件处理回调 */
@@ -36,7 +37,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t *disconnect =
+            (wifi_event_sta_disconnected_t *)event_data;
         s_is_connected = false;
+        ESP_LOGW(TAG, "Wi-Fi disconnected (reason=%d)", disconnect->reason);
         if (s_retry_num < WIFI_MAX_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
@@ -125,7 +129,13 @@ esp_err_t wifi_manager_connect(const char *ssid, const char *password)
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    if (!s_wifi_started) {
+        ESP_ERROR_CHECK(esp_wifi_start());
+        s_wifi_started = true;
+    } else {
+        /* STA_START only occurs once. Explicitly connect after later BLE retries. */
+        ESP_ERROR_CHECK(esp_wifi_connect());
+    }
 
     ESP_LOGI(TAG, "Wi-Fi STA 已启动，正在连接 %s ...", ssid);
 

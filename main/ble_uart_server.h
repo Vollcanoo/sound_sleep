@@ -27,13 +27,13 @@ void ble_uart_server_init(void);
 
 /**
  * 停止 BLE 广播并断开连接。
- * WiFi 连接成功后调用以节省功耗。
+ * 仅在需要关闭蓝牙时调用。正常运行会保持 BLE 广播，以便重新绑定和控制监测。
  */
 void ble_uart_server_stop(void);
 
 /**
  * 重新开启 BLE 广播。
- * WiFi 断开后调用，让手机可以重新发现设备进行配网。
+ * WiFi 断开后调用，让手机可以重新发现设备进行配网。若已在广播则不会重复启动。
  */
 void ble_uart_server_restart(void);
 
