@@ -282,6 +282,12 @@ int cloud_llm_analyze(const snore_features_t *feat,
                       char *report_out, size_t report_size,
                       pump_command_t *cmd_out)
 {
+    if (strlen(VOLCENGINE_API_KEY) == 0 ||
+        strcmp(VOLCENGINE_API_KEY, "your-volcengine-api-key-here") == 0) {
+        ESP_LOGW(TAG, "LLM skipped: no valid API key configured in secrets.h");
+        return -1;
+    }
+
     char *post_data = build_request_json(feat);
     if (!post_data) {
         ESP_LOGE(TAG, "构造请求 JSON 失败: 内存不足");

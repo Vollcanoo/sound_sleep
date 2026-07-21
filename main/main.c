@@ -289,6 +289,23 @@ static void feature_aggregator_task(void *arg)
         if (xQueueOverwrite(g_feature_queue, &feature) != pdPASS) {
             ESP_LOGW(TAG, "Unable to update latest feature frame");
         }
+
+        /* BLE CSV 实时推送：手机连接且正在监测时，将 14 列姿态数据发往手机 */
+        if (ble_uart_is_connected()) {
+            char csv[200];
+            posture_data_t *p = &feature.posture;
+            int len = snprintf(csv, sizeof(csv),
+                     "%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f,%.2f,%d,%s,%.2f\n",
+                     p->raw_left, p->raw_center, p->raw_right,
+                     p->median_left, p->median_center, p->median_right,
+                     p->total_pressure,
+                     p->left_ratio, p->center_ratio, p->right_ratio,
+                     p->x_center_cm,
+                     p->moving ? 1 : 0,
+                     posture_name(p->posture),
+                     p->confidence);
+            ble_uart_send(csv, len);
+        }
     }
 }
 
@@ -449,7 +466,7 @@ void app_main(void)
         ESP_LOGE(TAG, "Snore detector initialization failed: %s", esp_err_to_name(ret));
         return;
     }
-    xTaskCreate(feature_aggregator_task, "feature_aggregator", 4096, NULL, 3, NULL);
+    xTaskCreate(feature_aggregator_task, "feature_aggregator", 6144, NULL, 3, NULL);
     ESP_LOGI(TAG, "✅ cloud, pump, posture, and feature tasks started");
 
     /*

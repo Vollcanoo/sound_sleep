@@ -21,8 +21,8 @@
 /* 压力检测阈值 — 较低值确保轻压力也能检测到 */
 #define PRESSURE_PRESENT_THRESHOLD  50
 #define SESSION_GET_UP_TIMEOUT_MS   (15 * 1000)
-#define SESSION_END_TIMEOUT_MS      (5 * 60 * 1000)
-#define SESSION_MIN_REPORT_MS       (5 * 60 * 1000)
+#define SESSION_END_TIMEOUT_MS      (15 * 60 * 1000)
+#define SESSION_MIN_REPORT_MS       (15 * 60 * 1000)
 
 /**
  * 睡眠会话汇总数据 — 用于 LLM prompt 和云端上传

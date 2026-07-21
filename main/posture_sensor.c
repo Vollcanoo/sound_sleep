@@ -302,7 +302,7 @@ static void posture_sensor_task(void *arg)
                 window_stats_t stats = calculate_window_stats();
                 posture_data_t result = classify_posture(&raw, &stats);
                 xQueueOverwrite(s_result_queue, &result);
-                ESP_LOGI(TAG, "raw=%d,%d,%d total=%.1f posture=%s confidence=%.2f",
+                ESP_LOGD(TAG, "raw=%d,%d,%d total=%.1f posture=%s confidence=%.2f",
                          result.raw_left, result.raw_center, result.raw_right,
                          result.total_pressure, posture_name(result.posture),
                          result.confidence);
