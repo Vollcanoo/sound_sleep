@@ -345,9 +345,42 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
   /// 分析结果展示
   Widget _buildAnalysisResult(AiAnalysis aiAnalysis) {
+    final isLocalRules = aiAnalysis.model != null &&
+        aiAnalysis.model!.contains('本地规则');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (isLocalRules) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    size: 20, color: Colors.orange.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '未配置 API 密钥，当前使用本地规则分析。'
+                    '如需 AI 深度分析，请配置 VolcEngine API 密钥。',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange.shade800,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         // 一句话总结
         Container(
           padding: const EdgeInsets.all(12),

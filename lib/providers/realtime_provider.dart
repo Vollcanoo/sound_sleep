@@ -126,18 +126,6 @@ class RealtimeProvider extends ChangeNotifier {
     return record;
   }
 
-  /// 启动演示/模拟监测模式
-  Future<void> startDemoMonitoring() async {
-    _bleService.startMockStream();
-    _beginMonitoringSession();
-  }
-
-  /// 停止演示监测
-  Future<SleepRecord?> stopDemoMonitoring(String userId) async {
-    _bleService.stopMockStream();
-    return stopMonitoringAndGenerateReport(userId);
-  }
-
   @override
   void dispose() {
     _readingSubscription?.cancel();

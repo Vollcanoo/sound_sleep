@@ -16,15 +16,20 @@ import 'providers/realtime_provider.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('zh_CN');
-  runApp(const AppBootstrap());
+
+  final authService = AuthService();
+  await authService.init();
+
+  runApp(AppBootstrap(authService: authService));
 }
 
 class AppBootstrap extends StatelessWidget {
-  const AppBootstrap({super.key});
+  final AuthService authService;
+
+  const AppBootstrap({super.key, required this.authService});
 
   @override
   Widget build(BuildContext context) {
-    final authService = AuthService();
     final sleepService = SleepService();
     final bleDataService = BleDataService();
     final deviceService = DeviceService(bleDataService);

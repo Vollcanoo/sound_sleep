@@ -23,6 +23,36 @@ class User {
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'username': username,
+        'email': email,
+        'phone': phone,
+        'nickname': nickname,
+        'gender': gender,
+        'birthDate': birthDate?.toIso8601String(),
+        'height': height,
+        'weight': weight,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory User.fromJson(Map<String, dynamic> json) => User(
+        id: json['id'] as String,
+        username: json['username'] as String,
+        email: json['email'] as String?,
+        phone: json['phone'] as String?,
+        nickname: json['nickname'] as String?,
+        gender: json['gender'] as String?,
+        birthDate: json['birthDate'] != null
+            ? DateTime.parse(json['birthDate'] as String)
+            : null,
+        height: (json['height'] as num?)?.toDouble(),
+        weight: (json['weight'] as num?)?.toDouble(),
+        createdAt: json['createdAt'] != null
+            ? DateTime.parse(json['createdAt'] as String)
+            : null,
+      );
+
   User copyWith({
     String? nickname,
     String? email,

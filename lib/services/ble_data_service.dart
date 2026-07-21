@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/posture_event.dart';
@@ -37,10 +36,6 @@ class BleDataService extends ChangeNotifier {
   // 实时数据流
   final _readingController = StreamController<PostureReading>.broadcast();
   final _connectionController = StreamController<bool>.broadcast();
-
-  // Mock 相关
-  Timer? _mockTimer;
-  bool _isMockRunning = false;
 
   // ── Getters ──
 
@@ -241,114 +236,8 @@ class BleDataService extends ChangeNotifier {
     return result;
   }
 
-  // ── Mock 模式（测试/演示用）──
-
-  /// 启动模拟数据流，每秒生成一条假读数
-  void startMockStream() {
-    if (_isMockRunning) return;
-    _isMockRunning = true;
-
-    final random = Random(42); // 固定种子，保证可重复性
-    const postures = [
-      PostureType.supine,
-      PostureType.leftSide,
-      PostureType.rightSide,
-      PostureType.moving,
-    ];
-    var currentPosture = PostureType.supine;
-    var tickCount = 0;
-
-    _isConnected = true;
-    _connectionController.add(true);
-    startSession();
-
-    _mockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      tickCount++;
-
-      // 每 15-30 秒随机切换一次姿态
-      if (tickCount % (15 + random.nextInt(16)) == 0) {
-        currentPosture = postures[random.nextInt(postures.length)];
-      }
-
-      // 根据当前姿态生成合理的传感器数据
-      final int rawLeft;
-      final int rawCenter;
-      final int rawRight;
-
-      switch (currentPosture) {
-        case PostureType.leftSide:
-          rawLeft = 800 + random.nextInt(200);
-          rawCenter = 200 + random.nextInt(150);
-          rawRight = 50 + random.nextInt(80);
-        case PostureType.rightSide:
-          rawLeft = 50 + random.nextInt(80);
-          rawCenter = 200 + random.nextInt(150);
-          rawRight = 800 + random.nextInt(200);
-        case PostureType.supine:
-          rawLeft = 300 + random.nextInt(100);
-          rawCenter = 600 + random.nextInt(200);
-          rawRight = 300 + random.nextInt(100);
-        case PostureType.moving:
-          rawLeft = random.nextInt(600);
-          rawCenter = random.nextInt(600);
-          rawRight = random.nextInt(600);
-        default:
-          rawLeft = 100 + random.nextInt(100);
-          rawCenter = 100 + random.nextInt(100);
-          rawRight = 100 + random.nextInt(100);
-      }
-
-      final total = (rawLeft + rawCenter + rawRight).toDouble();
-      final leftR = total > 0 ? rawLeft / total : 0.0;
-      final centerR = total > 0 ? rawCenter / total : 0.0;
-      final rightR = total > 0 ? rawRight / total : 0.0;
-
-      final isMoving = currentPosture == PostureType.moving;
-      final confidence = isMoving
-          ? 0.5 + random.nextDouble() * 0.3
-          : 0.8 + random.nextDouble() * 0.2;
-
-      // 组装 CSV 行并通过 _processLine 解析
-      final csv = [
-        rawLeft,
-        rawCenter,
-        rawRight,
-        rawLeft.toDouble().toStringAsFixed(1),
-        rawCenter.toDouble().toStringAsFixed(1),
-        rawRight.toDouble().toStringAsFixed(1),
-        total.toStringAsFixed(1),
-        leftR.toStringAsFixed(4),
-        centerR.toStringAsFixed(4),
-        rightR.toStringAsFixed(4),
-        (leftR * 10 - 5).toStringAsFixed(2), // xCenterCm
-        isMoving ? '1' : '0',
-        currentPosture.name.toUpperCase().replaceAllMapped(
-          RegExp(r'([a-z])([A-Z])'),
-          (m) => '${m[1]}_${m[2]}',
-        ),
-        confidence.toStringAsFixed(4),
-      ].join(',');
-
-      _processLine(csv);
-    });
-
-    notifyListeners();
-  }
-
-  /// 停止模拟数据流
-  void stopMockStream() {
-    _mockTimer?.cancel();
-    _mockTimer = null;
-    _isMockRunning = false;
-    _isConnected = false;
-    _isReceivingData = false;
-    _connectionController.add(false);
-    notifyListeners();
-  }
-
   @override
   void dispose() {
-    stopMockStream();
     disconnect();
     _readingController.close();
     _connectionController.close();
