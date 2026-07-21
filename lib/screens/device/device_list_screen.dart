@@ -31,10 +31,7 @@ class DeviceListScreen extends StatelessWidget {
                   const SizedBox(height: 16),
                   Text(
                     '暂无绑定设备',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey.shade500,
-                    ),
+                    style: TextStyle(fontSize: 16, color: Colors.grey.shade500),
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
@@ -56,7 +53,10 @@ class DeviceListScreen extends StatelessWidget {
                   background: Container(
                     alignment: Alignment.centerRight,
                     padding: const EdgeInsets.only(right: 24),
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.red.shade400,
                       borderRadius: BorderRadius.circular(16),
@@ -76,14 +76,18 @@ class DeviceListScreen extends StatelessWidget {
                           ),
                           TextButton(
                             onPressed: () => Navigator.pop(context, true),
-                            child: const Text('确定', style: TextStyle(color: Colors.red)),
+                            child: const Text(
+                              '确定',
+                              style: TextStyle(color: Colors.red),
+                            ),
                           ),
                         ],
                       ),
                     );
                   },
-                  onDismissed: (direction) {
-                    deviceProvider.unbindDevice(device.id);
+                  onDismissed: (direction) async {
+                    await deviceProvider.unbindDevice(device.id);
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('已解绑 ${device.name}')),
                     );

@@ -62,8 +62,7 @@ class BleDataService extends ChangeNotifier {
       _connectedDevice = device;
 
       // 监听连接状态变化
-      _connectionStateSubscription =
-          device.connectionState.listen((state) {
+      _connectionStateSubscription = device.connectionState.listen((state) {
         final connected = state == BluetoothConnectionState.connected;
         if (_isConnected && !connected) {
           // 连接断开 → 尝试自动重连
@@ -97,8 +96,9 @@ class BleDataService extends ChangeNotifier {
       await _txCharacteristic!.setNotifyValue(true);
 
       // 订阅数据流
-      _dataSubscription =
-          _txCharacteristic!.onValueReceived.listen(_onDataReceived);
+      _dataSubscription = _txCharacteristic!.onValueReceived.listen(
+        _onDataReceived,
+      );
 
       _isConnected = true;
       _connectionController.add(true);
@@ -154,17 +154,21 @@ class BleDataService extends ChangeNotifier {
   }
 
   /// 向 ESP32 发送指令（如 'b' 触发重新校准）
-  Future<void> sendCommand(String command) async {
+  Future<bool> sendCommand(String command) async {
     if (_rxCharacteristic == null || !_isConnected) {
       debugPrint('无法发送指令：未连接');
-      return;
+      return false;
     }
     try {
       final bytes = utf8.encode(command);
-      await _rxCharacteristic!.write(bytes, withoutResponse: true);
+      // Monitoring commands are state changes. Waiting for the GATT response
+      // guarantees the ESP32 handled the write before a later disconnect.
+      await _rxCharacteristic!.write(bytes, withoutResponse: false);
       debugPrint('已发送指令: $command');
+      return true;
     } catch (e) {
       debugPrint('发送指令失败: $e');
+      return false;
     }
   }
 
@@ -319,9 +323,9 @@ class BleDataService extends ChangeNotifier {
         (leftR * 10 - 5).toStringAsFixed(2), // xCenterCm
         isMoving ? '1' : '0',
         currentPosture.name.toUpperCase().replaceAllMapped(
-              RegExp(r'([a-z])([A-Z])'),
-              (m) => '${m[1]}_${m[2]}',
-            ),
+          RegExp(r'([a-z])([A-Z])'),
+          (m) => '${m[1]}_${m[2]}',
+        ),
         confidence.toStringAsFixed(4),
       ].join(',');
 

@@ -2,26 +2,17 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/device.dart';
+import 'ble_data_service.dart';
 
 class DeviceService extends ChangeNotifier {
+  final BleDataService _bleDataService;
   final List<Device> _boundDevices = [];
   final List<Device> _scannedDevices = [];
   bool _isScanning = false;
   bool _bleAvailable = false;
 
-  DeviceService() {
+  DeviceService(this._bleDataService) {
     _initBle();
-    // Add a pre-bound mock device for demo
-    _boundDevices.add(Device(
-      id: 'dev_001',
-      name: 'SleepGuard Pro',
-      macAddress: 'AA:BB:CC:DD:EE:01',
-      type: '睡眠监测仪',
-      firmwareVersion: 'v2.1.3',
-      batteryLevel: 78,
-      isConnected: true,
-      boundAt: DateTime.now().subtract(const Duration(days: 30)),
-    ));
   }
 
   List<Device> get boundDevices => List.unmodifiable(_boundDevices);
@@ -69,22 +60,37 @@ class DeviceService extends ChangeNotifier {
       final completer = Completer<void>();
       final subscription = FlutterBluePlus.onScanResults.listen((results) {
         for (final r in results) {
-          final deviceName = r.device.platformName.isNotEmpty
-              ? r.device.platformName
-              : '未知设备';
+          // Android often leaves platformName empty during scanning. The ESP32
+          // advertises its name and NUS UUID in AdvertisementData instead.
+          const sleepMonitorName = 'SleepMonitor';
+          const uartServiceUuid = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+          final advertisedName = r.advertisementData.advName.trim();
+          final deviceName = advertisedName.isNotEmpty
+              ? advertisedName
+              : r.device.platformName;
+          final hasUartService = r.advertisementData.serviceUuids.any(
+            (uuid) => uuid.toString().toLowerCase() == uartServiceUuid,
+          );
+          final isSleepMonitor =
+              deviceName == sleepMonitorName || hasUartService;
+
+          if (!isSleepMonitor) continue;
+
           final macAddress = r.device.remoteId.str;
 
           // Skip already-bound devices and duplicates
           if (_boundDevices.any((d) => d.macAddress == macAddress)) continue;
           if (_scannedDevices.any((d) => d.macAddress == macAddress)) continue;
 
-          _scannedDevices.add(Device(
-            id: 'ble_${macAddress.replaceAll(':', '')}',
-            name: deviceName,
-            macAddress: macAddress,
-            type: '蓝牙设备',
-            bleDevice: r.device,
-          ));
+          _scannedDevices.add(
+            Device(
+              id: 'ble_${macAddress.replaceAll(':', '')}',
+              name: deviceName.isNotEmpty ? deviceName : sleepMonitorName,
+              macAddress: macAddress,
+              type: '蓝牙设备',
+              bleDevice: r.device,
+            ),
+          );
           notifyListeners();
         }
       });
@@ -135,21 +141,18 @@ class DeviceService extends ChangeNotifier {
 
   /// Bind (connect) a device
   Future<Device> bindDevice(Device device) async {
-    // Try real BLE connect if available
     if (device.bleDevice != null) {
       try {
-        await device.bleDevice!.connect(timeout: const Duration(seconds: 5));
+        await _bleDataService.connectAndSubscribe(device.bleDevice!);
       } catch (e) {
         debugPrint('BLE connect error: $e');
+        rethrow;
       }
     } else {
       await Future.delayed(const Duration(seconds: 1));
     }
 
-    final bound = device.copyWith(
-      isConnected: true,
-      boundAt: DateTime.now(),
-    );
+    final bound = device.copyWith(isConnected: true, boundAt: DateTime.now());
     _scannedDevices.removeWhere((d) => d.id == device.id);
     _boundDevices.add(bound);
     notifyListeners();
@@ -160,10 +163,10 @@ class DeviceService extends ChangeNotifier {
   Future<void> unbindDevice(String deviceId) async {
     final device = _boundDevices.firstWhere((d) => d.id == deviceId);
 
-    // Try real BLE disconnect
     if (device.bleDevice != null) {
       try {
-        await device.bleDevice!.disconnect();
+        await _bleDataService.sendCommand('monitor_stop');
+        await _bleDataService.disconnect();
       } catch (e) {
         debugPrint('BLE disconnect error: $e');
       }

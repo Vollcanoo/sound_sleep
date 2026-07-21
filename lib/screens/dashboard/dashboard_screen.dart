@@ -59,10 +59,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final greeting = hour < 6
         ? '夜深了'
         : hour < 12
-            ? '早上好'
-            : hour < 18
-                ? '下午好'
-                : '晚上好';
+        ? '早上好'
+        : hour < 18
+        ? '下午好'
+        : '晚上好';
 
     return Scaffold(
       body: CustomScrollView(
@@ -101,8 +101,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  DateFormat('yyyy年M月d日 EEEE', 'zh_CN')
-                                      .format(DateTime.now()),
+                                  DateFormat(
+                                    'yyyy年M月d日 EEEE',
+                                    'zh_CN',
+                                  ).format(DateTime.now()),
                                   style: TextStyle(
                                     fontSize: 14,
                                     color: Colors.white.withValues(alpha: 0.8),
@@ -113,10 +115,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           CircleAvatar(
                             radius: 22,
-                            backgroundColor:
-                                Colors.white.withValues(alpha: 0.2),
-                            child:
-                                const Icon(Icons.person, color: Colors.white),
+                            backgroundColor: Colors.white.withValues(
+                              alpha: 0.2,
+                            ),
+                            child: const Icon(
+                              Icons.person,
+                              color: Colors.white,
+                            ),
                           ),
                         ],
                       ),
@@ -171,13 +176,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 14),
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
                       decoration: BoxDecoration(
                         gradient: realtimeProvider.isMonitoring
                             ? const LinearGradient(
-                                colors: [Color(0xFF43A047), Color(0xFF66BB6A)])
+                                colors: [Color(0xFF43A047), Color(0xFF66BB6A)],
+                              )
                             : const LinearGradient(
-                                colors: [AppTheme.primaryBlue, AppTheme.lightBlue]),
+                                colors: [
+                                  AppTheme.primaryBlue,
+                                  AppTheme.lightBlue,
+                                ],
+                              ),
                       ),
                       child: Row(
                         children: [
@@ -201,7 +213,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           if (realtimeProvider.isMonitoring)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(12),
@@ -257,7 +271,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             child: Icon(
                                               realtimeProvider.isOnBed
                                                   ? Icons.hotel
-                                                  : Icons.airline_seat_flat_angled,
+                                                  : Icons
+                                                        .airline_seat_flat_angled,
                                               color: AppTheme.primaryBlue,
                                               size: 24,
                                             ),
@@ -282,7 +297,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                     : '不在床上',
                                                 style: TextStyle(
                                                   fontSize: 13,
-                                                  color: realtimeProvider.isOnBed
+                                                  color:
+                                                      realtimeProvider.isOnBed
                                                       ? const Color(0xFF43A047)
                                                       : Colors.grey.shade500,
                                                 ),
@@ -323,7 +339,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   Container(
                                     width: double.infinity,
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 10, horizontal: 14),
+                                      vertical: 10,
+                                      horizontal: 14,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: Colors.grey.shade100,
                                       borderRadius: BorderRadius.circular(10),
@@ -332,9 +350,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       mainAxisAlignment:
                                           MainAxisAlignment.center,
                                       children: [
-                                        Icon(Icons.timer_outlined,
-                                            size: 16,
-                                            color: Colors.grey.shade600),
+                                        Icon(
+                                          Icons.timer_outlined,
+                                          size: 16,
+                                          color: Colors.grey.shade600,
+                                        ),
                                         const SizedBox(width: 6),
                                         Text(
                                           '已监测 ${_formatDuration(DateTime.now().difference(realtimeProvider.monitoringStart!))}',
@@ -357,10 +377,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           authProvider.user?.id ?? '';
                                       await realtimeProvider
                                           .stopMonitoringAndGenerateReport(
-                                              userId);
+                                            userId,
+                                          );
                                     },
-                                    icon: const Icon(Icons.stop_circle_outlined,
-                                        size: 20),
+                                    icon: const Icon(
+                                      Icons.stop_circle_outlined,
+                                      size: 20,
+                                    ),
                                     label: const Text('停止监测'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: const Color(0xFFE53935),
@@ -376,10 +399,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             )
                           : Column(
                               children: [
-                                Icon(Icons.nightlight_round,
-                                    size: 40,
-                                    color: AppTheme.primaryBlue
-                                        .withValues(alpha: 0.3)),
+                                Icon(
+                                  Icons.nightlight_round,
+                                  size: 40,
+                                  color: AppTheme.primaryBlue.withValues(
+                                    alpha: 0.3,
+                                  ),
+                                ),
                                 const SizedBox(height: 8),
                                 Text(
                                   '点击开始睡眠监测',
@@ -392,12 +418,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 SizedBox(
                                   width: double.infinity,
                                   child: ElevatedButton.icon(
-                                    onPressed: () {
-                                      realtimeProvider.startMonitoring();
+                                    onPressed: () async {
+                                      final started = await realtimeProvider
+                                          .startMonitoring();
+                                      if (!context.mounted || started) return;
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            '请先在“我的设备”中连接 SleepMonitor',
+                                          ),
+                                        ),
+                                      );
                                     },
                                     icon: const Icon(
-                                        Icons.play_circle_outline,
-                                        size: 20),
+                                      Icons.play_circle_outline,
+                                      size: 20,
+                                    ),
                                     label: const Text('开始监测'),
                                     style: ElevatedButton.styleFrom(
                                       minimumSize: const Size(0, 44),
@@ -425,10 +463,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   const Text(
                     '昨晚睡眠详情',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 12),
                   if (latestRecord != null) ...[
@@ -439,8 +474,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           child: StatCard(
                             icon: Icons.bedtime,
                             label: '上床时间',
-                            value: DateFormat('HH:mm')
-                                .format(latestRecord.bedTime),
+                            value: DateFormat(
+                              'HH:mm',
+                            ).format(latestRecord.bedTime),
                             iconColor: AppTheme.darkBlue,
                           ),
                         ),
@@ -449,8 +485,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           child: StatCard(
                             icon: Icons.wb_sunny_outlined,
                             label: '起床时间',
-                            value: DateFormat('HH:mm')
-                                .format(latestRecord.wakeTime),
+                            value: DateFormat(
+                              'HH:mm',
+                            ).format(latestRecord.wakeTime),
                             iconColor: AppTheme.lightBlue,
                           ),
                         ),
@@ -500,10 +537,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 24),
                   const Text(
                     '本周睡眠时长',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 12),
                   Card(

@@ -26,8 +26,8 @@ class AppBootstrap extends StatelessWidget {
   Widget build(BuildContext context) {
     final authService = AuthService();
     final sleepService = SleepService();
-    final deviceService = DeviceService();
     final bleDataService = BleDataService();
+    final deviceService = DeviceService(bleDataService);
     final snoreApiService = SnoreApiService();
     final cloudSyncService = CloudSyncService();
 

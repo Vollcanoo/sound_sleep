@@ -34,9 +34,10 @@ class RealtimeProvider extends ChangeNotifier {
     required BleDataService bleService,
     required SnoreApiService snoreService,
     required SleepService sleepService,
-  })  : _bleService = bleService, // ignore: prefer_initializing_formals
-        _snoreService = snoreService, // ignore: prefer_initializing_formals
-        _sleepService = sleepService { // ignore: prefer_initializing_formals
+  }) : _bleService = bleService, // ignore: prefer_initializing_formals
+       _snoreService = snoreService, // ignore: prefer_initializing_formals
+       _sleepService = sleepService {
+    // ignore: prefer_initializing_formals
     // 监听 BLE 连接状态变化
     _bleService.connectionStream.listen((connected) {
       _isDeviceConnected = connected;
@@ -56,7 +57,18 @@ class RealtimeProvider extends ChangeNotifier {
   double get currentPressure => _currentReading?.totalPressure ?? 0;
 
   /// 开始监测（订阅 BLE 数据流）
-  void startMonitoring() {
+  Future<bool> startMonitoring() async {
+    if (_isMonitoring) return true;
+
+    if (!await _bleService.sendCommand('monitor_start')) {
+      return false;
+    }
+
+    _beginMonitoringSession();
+    return true;
+  }
+
+  void _beginMonitoringSession() {
     _isMonitoring = true;
     _monitoringStart = DateTime.now();
     _sessionReadings.clear();
@@ -74,6 +86,9 @@ class RealtimeProvider extends ChangeNotifier {
   ///
   /// 返回生成的 [SleepRecord]，若没有有效数据则返回 null。
   Future<SleepRecord?> stopMonitoringAndGenerateReport(String userId) async {
+    if (_isMonitoring) {
+      await _bleService.sendCommand('monitor_stop');
+    }
     _isMonitoring = false;
     _readingSubscription?.cancel();
     _readingSubscription = null;
@@ -112,9 +127,9 @@ class RealtimeProvider extends ChangeNotifier {
   }
 
   /// 启动演示/模拟监测模式
-  void startDemoMonitoring() {
+  Future<void> startDemoMonitoring() async {
     _bleService.startMockStream();
-    startMonitoring();
+    _beginMonitoringSession();
   }
 
   /// 停止演示监测
