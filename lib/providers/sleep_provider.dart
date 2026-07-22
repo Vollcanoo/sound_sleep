@@ -13,7 +13,9 @@ class SleepProvider extends ChangeNotifier {
   final Set<String> _analyzingIds = {};
   bool _isSyncing = false;
 
-  SleepProvider(this._sleepService, this._cloudSync);
+  SleepProvider(this._sleepService, this._cloudSync) {
+    fetchFromCloud();
+  }
 
   List<SleepRecord> get records => _sleepService.getRecords();
   SleepRecord? get latestRecord => _sleepService.latestRecord;
@@ -63,9 +65,7 @@ class SleepProvider extends ChangeNotifier {
     try {
       final cloudRecords = await _cloudSync.fetchRecords();
       for (final record in cloudRecords) {
-        if (_sleepService.getRecordById(record.id) == null) {
-          _sleepService.addRecord(record);
-        }
+        _sleepService.addRecordLocal(record);
       }
       debugPrint('[SleepProvider] 从云端拉取了 ${cloudRecords.length} 条记录');
     } catch (e) {

@@ -35,7 +35,9 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
   @override
   void dispose() {
     _provisionService.removeListener(_onStateChanged);
-    _provisionService.dispose();
+    if (_provisionService.state != WifiProvisionState.success) {
+      _provisionService.dispose();
+    }
     _ssidController.dispose();
     _passwordController.dispose();
     super.dispose();

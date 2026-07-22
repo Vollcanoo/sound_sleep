@@ -8,7 +8,9 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
-  AuthProvider(this._authService);
+  AuthProvider(this._authService) {
+    _user = _authService.currentUser;
+  }
 
   User? get user => _user;
   bool get isLoggedIn => _user != null;

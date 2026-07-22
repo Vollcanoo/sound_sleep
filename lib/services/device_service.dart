@@ -172,4 +172,44 @@ class DeviceService extends ChangeNotifier {
     notifyListeners();
     await _persistBoundDevices();
   }
+
+  Future<bool> reconnectDevice(String deviceId) async {
+    if (!_bleAvailable) return false;
+
+    final idx = _boundDevices.indexWhere((d) => d.id == deviceId);
+    if (idx == -1) return false;
+    final device = _boundDevices[idx];
+    if (device.bleDevice != null && _bleDataService.isConnected) return true;
+
+    try {
+      final adapterState = await FlutterBluePlus.adapterState.first;
+      if (adapterState != BluetoothAdapterState.on) return false;
+
+      BluetoothDevice? found;
+      final subscription = FlutterBluePlus.onScanResults.listen((results) {
+        for (final r in results) {
+          if (r.device.remoteId.str == device.macAddress) {
+            found = r.device;
+          }
+        }
+      });
+
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
+      await Future.delayed(const Duration(seconds: 5));
+      await subscription.cancel();
+
+      if (found == null) return false;
+
+      await _bleDataService.connectAndSubscribe(found!);
+      _boundDevices[idx] = device.copyWith(
+        isConnected: true,
+        bleDevice: found,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Reconnect error: $e');
+      return false;
+    }
+  }
 }

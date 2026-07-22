@@ -55,4 +55,9 @@ class SleepService {
       });
     }
   }
+
+  void addRecordLocal(SleepRecord record) {
+    if (_records.any((r) => r.id == record.id)) return;
+    _records.add(record);
+  }
 }

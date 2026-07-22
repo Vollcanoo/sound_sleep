@@ -56,6 +56,10 @@ class BleDataService extends ChangeNotifier {
       await device.connect(timeout: const Duration(seconds: 10));
       _connectedDevice = device;
 
+      // 取消旧的订阅，避免重连时 listener 堆积
+      await _connectionStateSubscription?.cancel();
+      await _dataSubscription?.cancel();
+
       // 监听连接状态变化
       _connectionStateSubscription = device.connectionState.listen((state) {
         final connected = state == BluetoothConnectionState.connected;
