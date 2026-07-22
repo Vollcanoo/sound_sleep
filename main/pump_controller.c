@@ -173,3 +173,61 @@ static void deflate_side(int pump_gpio,
              "放气完成: %s侧",
              side_name);
 }
+
+void pump_execute_command(const pump_command_t *cmd)
+{
+    /* hold → 不操作 */
+    if (strcmp(cmd->action, "hold") == 0) {
+        ESP_LOGI(TAG, "保持当前状态 (hold)");
+        return;
+    }
+
+    if (strcmp(cmd->action, "inflate") == 0) {
+        if (strcmp(cmd->zone, "left") == 0) {
+            inflate_side(GPIO_PUMP_LEFT, GPIO_VALVE_LEFT, "左",
+                        cmd->intensity, cmd->duration_sec);
+        } else if (strcmp(cmd->zone, "right") == 0) {
+            inflate_side(GPIO_PUMP_RIGHT, GPIO_VALVE_RIGHT, "右",
+                        cmd->intensity, cmd->duration_sec);
+        } else if (strcmp(cmd->zone, "both") == 0) {
+            /* 两侧同时充气 */
+            gpio_set_level(GPIO_VALVE_LEFT, 0);
+            gpio_set_level(GPIO_VALVE_RIGHT, 0);
+            gpio_set_level(GPIO_PUMP_LEFT, 1);
+            gpio_set_level(GPIO_PUMP_RIGHT, 1);
+
+            int actual_ms = cmd->duration_sec * cmd->intensity * 10;
+            if (actual_ms < 1000) actual_ms = 1000;
+            vTaskDelay(pdMS_TO_TICKS(actual_ms));
+
+            gpio_set_level(GPIO_PUMP_LEFT, 0);
+            gpio_set_level(GPIO_PUMP_RIGHT, 0);
+            ESP_LOGI(TAG, "双侧充气完成 (%d ms)", actual_ms);
+        } else {
+            ESP_LOGW(TAG, "未知区域: %s, 跳过", cmd->zone);
+        }
+
+    } else if (strcmp(cmd->action, "deflate") == 0) {
+        if (strcmp(cmd->zone, "left") == 0) {
+            deflate_side(GPIO_PUMP_LEFT, GPIO_VALVE_LEFT, "左",
+                        cmd->duration_sec);
+        } else if (strcmp(cmd->zone, "right") == 0) {
+            deflate_side(GPIO_PUMP_RIGHT, GPIO_VALVE_RIGHT, "右",
+                        cmd->duration_sec);
+        } else if (strcmp(cmd->zone, "both") == 0) {
+            gpio_set_level(GPIO_PUMP_LEFT, 0);
+            gpio_set_level(GPIO_PUMP_RIGHT, 0);
+            gpio_set_level(GPIO_VALVE_LEFT, 1);
+            gpio_set_level(GPIO_VALVE_RIGHT, 1);
+            vTaskDelay(pdMS_TO_TICKS(cmd->duration_sec * 1000));
+            gpio_set_level(GPIO_VALVE_LEFT, 0);
+            gpio_set_level(GPIO_VALVE_RIGHT, 0);
+            ESP_LOGI(TAG, "双侧放气完成");
+        } else {
+            ESP_LOGW(TAG, "未知区域: %s, 跳过", cmd->zone);
+        }
+
+    } else {
+        ESP_LOGW(TAG, "未知动作: %s", cmd->action);
+    }
+} 
