@@ -29,6 +29,28 @@
 #include "posture_sensor.h"
 #include "wifi_provision.h"
 #include "wifi_manager.h"
+#include "freertos/semphr.h"
+
+static void wifi_connect_task(void *arg)
+{
+    char ssid[33] = {0};
+    char pass[65] = {0};
+    if (wifi_provision_load_credentials(ssid, sizeof(ssid),
+                                        pass, sizeof(pass)) == ESP_OK) {
+        esp_err_t ret = wifi_manager_connect(ssid, pass);
+        if (ret == ESP_OK) {
+            const char *ok = "{\"status\":\"ok\",\"msg\":\"wifi_connected\"}";
+            ble_uart_send(ok, strlen(ok));
+            ESP_LOGI("BLE_PROV", "WiFi connected via async provisioning");
+        } else {
+            const char *err = "{\"status\":\"error\",\"msg\":\"connect_failed\"}";
+            ble_uart_send(err, strlen(err));
+            wifi_provision_clear_credentials();
+            ESP_LOGW("BLE_PROV", "Async WiFi connect failed");
+        }
+    }
+    vTaskDelete(NULL);
+}
 
 static const char *TAG = "BLE_UART";
 
@@ -75,41 +97,26 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
 
             if (strcmp(buf, "monitor_start") == 0) {
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"monitor_started\"}";
-                monitor_control_set_enabled(true);
+                monitor_control_set_manual(true);
                 ble_uart_send(reply, strlen(reply));
-                ESP_LOGI(TAG, "Monitoring enabled by BLE");
+                ESP_LOGI(TAG, "Manual monitoring enabled by BLE");
             } else if (strcmp(buf, "monitor_stop") == 0) {
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"monitor_stopped\"}";
-                monitor_control_set_enabled(false);
+                monitor_control_set_manual(false);
                 ble_uart_send(reply, strlen(reply));
-                ESP_LOGI(TAG, "Monitoring disabled by BLE");
+                ESP_LOGI(TAG, "Manual monitoring disabled by BLE");
             } else if (strcmp(buf, "wifi_clear") == 0) {
                 wifi_provision_clear_credentials();
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"wifi_cleared\"}";
                 ble_uart_send(reply, strlen(reply));
                 ESP_LOGI(TAG, "WiFi credentials cleared by BLE");
             }
-            /* JSON 数据 → WiFi 配网处理（直接连接，不依赖 ble_provision_loop） */
+            /* JSON 数据 → WiFi 配网处理（异步连接，不阻塞 BLE 回调） */
             else if (buf[0] == '{') {
                 ESP_LOGI(TAG, "检测到 JSON 数据，处理配网...");
                 esp_err_t prov_ret = wifi_provision_handle_ble_data(buf, copied);
                 if (prov_ret == ESP_OK && !wifi_manager_is_connected()) {
-                    char ssid[33] = {0};
-                    char pass[65] = {0};
-                    if (wifi_provision_load_credentials(ssid, sizeof(ssid),
-                                                       pass, sizeof(pass)) == ESP_OK) {
-                        esp_err_t conn_ret = wifi_manager_connect(ssid, pass);
-                        if (conn_ret == ESP_OK) {
-                            const char *ok = "{\"status\":\"ok\",\"msg\":\"wifi_connected\"}";
-                            ble_uart_send(ok, strlen(ok));
-                            ESP_LOGI(TAG, "WiFi connected via inline provisioning");
-                        } else {
-                            const char *err = "{\"status\":\"error\",\"msg\":\"connect_failed\"}";
-                            ble_uart_send(err, strlen(err));
-                            wifi_provision_clear_credentials();
-                            ESP_LOGW(TAG, "Inline WiFi connect failed");
-                        }
-                    }
+                    xTaskCreate(wifi_connect_task, "wifi_conn", 4096, NULL, 3, NULL);
                 }
             }
             /* 单字节控制指令 */

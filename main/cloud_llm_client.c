@@ -80,18 +80,18 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     if (resp == NULL) return ESP_OK;
 
     switch (evt->event_id) {
-    case HTTP_EVENT_ON_DATA:
-        if (!esp_http_client_is_chunked_response(evt->client)) {
-            int copy_len = evt->data_len;
-            if (resp->data_len + copy_len >= resp->buffer_len) {
-                copy_len = resp->buffer_len - resp->data_len - 1;
-            }
-            if (copy_len > 0) {
-                memcpy(resp->buffer + resp->data_len, evt->data, copy_len);
-                resp->data_len += copy_len;
-                resp->buffer[resp->data_len] = '\0';
-            }
+    case HTTP_EVENT_ON_DATA: {
+        int copy_len = evt->data_len;
+        if (resp->data_len + copy_len >= resp->buffer_len) {
+            copy_len = resp->buffer_len - resp->data_len - 1;
         }
+        if (copy_len > 0) {
+            memcpy(resp->buffer + resp->data_len, evt->data, copy_len);
+            resp->data_len += copy_len;
+            resp->buffer[resp->data_len] = '\0';
+        }
+        break;
+    }
         break;
     case HTTP_EVENT_ON_FINISH:
     case HTTP_EVENT_DISCONNECTED:

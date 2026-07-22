@@ -74,23 +74,24 @@ static void cloud_task(void *arg)
 
     /* 初始化睡眠会话管理器 */
     session_init();
-    bool monitoring_active = false;
+    bool auto_was_active = true;
 
     while (1) {
         if (xQueueReceive(g_feature_queue, &feat, portMAX_DELAY) == pdTRUE) {
-            if (!monitor_control_is_enabled()) {
-                if (monitoring_active) {
+
+            /* 自动模式 gate：手动模式开启时暂停 session */
+            if (!monitor_control_auto_enabled()) {
+                if (auto_was_active) {
                     session_reset();
-                    ESP_LOGI(TAG, "Monitoring stopped; session cleared");
+                    ESP_LOGI(TAG, "Auto mode paused (manual mode active)");
                 }
-                monitoring_active = false;
+                auto_was_active = false;
                 continue;
             }
-
-            if (!monitoring_active) {
+            if (!auto_was_active) {
                 session_reset();
-                monitoring_active = true;
-                ESP_LOGI(TAG, "Monitoring started by BLE command");
+                auto_was_active = true;
+                ESP_LOGI(TAG, "Auto mode resumed");
             }
 
             ESP_LOGD(TAG, "收到传感器数据: posture=%s snore=%s %.2f分/时",
@@ -198,7 +199,6 @@ static void feature_aggregator_task(void *arg)
     snore_reading_t latest_snore = { .window_seconds = 2.04f };
     bool has_snore_window = false;
     bool was_on_pillow = false;
-    bool monitoring_active = false;
     int window_count = 0;
     int positive_window_count = 0;
     float probability_sum = 0.0f;
@@ -207,34 +207,6 @@ static void feature_aggregator_task(void *arg)
     while (true) {
         if (!posture_sensor_receive(&posture, portMAX_DELAY)) {
             continue;
-        }
-
-        if (!monitor_control_is_enabled()) {
-            if (monitoring_active) {
-                /* Do not carry snore statistics into the next BLE session. */
-                latest_snore = (snore_reading_t){ .window_seconds = 2.04f };
-                has_snore_window = false;
-                was_on_pillow = false;
-                window_count = 0;
-                positive_window_count = 0;
-                probability_sum = 0.0f;
-                max_probability = 0.0f;
-                monitoring_active = false;
-                ESP_LOGI(TAG, "Feature aggregation paused");
-            }
-            continue;
-        }
-
-        if (!monitoring_active) {
-            latest_snore = (snore_reading_t){ .window_seconds = 2.04f };
-            has_snore_window = false;
-            was_on_pillow = false;
-            window_count = 0;
-            positive_window_count = 0;
-            probability_sum = 0.0f;
-            max_probability = 0.0f;
-            monitoring_active = true;
-            ESP_LOGI(TAG, "Feature aggregation started");
         }
 
         snore_reading_t reading;
@@ -290,8 +262,8 @@ static void feature_aggregator_task(void *arg)
             ESP_LOGW(TAG, "Unable to update latest feature frame");
         }
 
-        /* BLE CSV 实时推送：手机连接且正在监测时，将 14 列姿态数据发往手机 */
-        if (ble_uart_is_connected()) {
+        /* BLE CSV 实时推送：仅手动模式开启且 BLE 连接时 */
+        if (monitor_control_manual_enabled() && ble_uart_is_connected()) {
             char csv[200];
             posture_data_t *p = &feature.posture;
             int len = snprintf(csv, sizeof(csv),
@@ -306,57 +278,6 @@ static void feature_aggregator_task(void *arg)
                      p->confidence);
             ble_uart_send(csv, len);
         }
-    }
-}
-
-/* ────────────────────────────────────────────────────
- *  ble_provision_loop — BLE 配网等待循环
- *
- *  阻塞等待手机通过 BLE 发送 WiFi 凭据，
- *  收到后尝试连接 WiFi，失败则回复错误并继续等待。
- *  返回 ESP_OK 表示 WiFi 已成功连接。
- * ──────────────────────────────────────────────────── */
-static esp_err_t ble_provision_loop(void)
-{
-    char ssid[33] = {0};
-    char pass[65] = {0};
-
-    while (1) {
-        ESP_LOGI(TAG, "📡 等待手机通过 BLE 发送 WiFi 配置...");
-
-        /* 阻塞等待凭据到来 */
-        xEventGroupWaitBits(g_provision_event_group,
-                            PROVISION_CRED_RECEIVED_BIT,
-                            pdTRUE,   /* 收到后清除 bit */
-                            pdFALSE,
-                            portMAX_DELAY);
-
-        ESP_LOGI(TAG, "收到 WiFi 凭据，正在连接...");
-
-        /* 读取凭据 */
-        if (wifi_provision_load_credentials(ssid, sizeof(ssid),
-                                            pass, sizeof(pass)) != ESP_OK) {
-            ESP_LOGE(TAG, "读取 NVS 凭据失败");
-            continue;
-        }
-
-        /* 尝试连接 */
-        esp_err_t ret = wifi_manager_connect(ssid, pass);
-        if (ret == ESP_OK) {
-            /* 连接成功，通知手机 */
-            const char *ok_msg = "{\"status\":\"ok\",\"msg\":\"wifi_connected\"}";
-            ble_uart_send(ok_msg, strlen(ok_msg));
-            // Keep BLE alive long enough for the notify packet to reach the app.
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            return ESP_OK;
-        }
-
-        /* 连接失败，通知手机 */
-        ESP_LOGW(TAG, "WiFi 连接失败，等待重新配网...");
-        const char *err_msg = "{\"status\":\"error\",\"msg\":\"connect_failed\"}";
-        ble_uart_send(err_msg, strlen(err_msg));
-        wifi_provision_clear_credentials();
-        /* 继续等待下一次配网 */
     }
 }
 
@@ -427,21 +348,13 @@ void app_main(void)
         }
     }
 
-    /* ── 5. 如果需要 BLE 配网 ────────────────────── */
+    /* ── 5. 如果无已保存凭据，等待 BLE 异步配网 ──── */
     if (!wifi_connected) {
-        ESP_LOGI(TAG, "进入 BLE 配网模式...");
+        ESP_LOGI(TAG, "无 WiFi 凭据，等待手机通过 BLE 配网...");
         ESP_LOGI(TAG, "✅ BLE 广播已开启 (设备名: SleepMonitor)");
-
-        ret = ble_provision_loop();
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "BLE 配网失败！");
-            return;
-        }
-        ESP_LOGI(TAG, "✅ WiFi 连接成功（通过 BLE 配网）");
     }
 
-    /* ── 6. WiFi 已连接 → 停止 BLE，启动工作任务 ── */
-    ESP_LOGI(TAG, "BLE remains available for monitoring control");
+    /* ── 6. 启动工作任务（不依赖 WiFi，传感器和 BLE 先运行）── */
 
     /* 创建队列 */
     g_feature_queue = xQueueCreate(1, sizeof(snore_features_t));
