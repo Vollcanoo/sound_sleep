@@ -115,6 +115,16 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"wifi_cleared\"}";
                 ble_uart_send(reply, strlen(reply));
                 ESP_LOGI(TAG, "WiFi credentials cleared by BLE");
+            } else if (strcmp(buf, "pump_mode_llm") == 0) {
+                monitor_control_set_pump_mode(PUMP_MODE_LLM);
+                const char *reply = "{\"status\":\"ok\",\"msg\":\"pump_mode_llm\"}";
+                ble_uart_send(reply, strlen(reply));
+                ESP_LOGI(TAG, "Pump mode set to LLM by BLE");
+            } else if (strcmp(buf, "pump_mode_local") == 0) {
+                monitor_control_set_pump_mode(PUMP_MODE_LOCAL);
+                const char *reply = "{\"status\":\"ok\",\"msg\":\"pump_mode_local\"}";
+                ble_uart_send(reply, strlen(reply));
+                ESP_LOGI(TAG, "Pump mode set to LOCAL by BLE");
             }
             /* JSON 数据 → WiFi 配网处理（异步连接，不阻塞 BLE 回调） */
             else if (buf[0] == '{') {

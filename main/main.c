@@ -80,8 +80,10 @@ static void cloud_task(void *arg)
     while (1) {
         if (xQueueReceive(g_feature_queue, &feat, portMAX_DELAY) == pdTRUE) {
 
-            /* 两种模式都喂 LLM 周期模块 */
-            llm_periodic_on_frame(&feat);
+            /* LLM 模式：喂 LLM 周期模块 */
+            if (monitor_control_get_pump_mode() == PUMP_MODE_LLM) {
+                llm_periodic_on_frame(&feat);
+            }
 
             /* 自动模式 gate：手动模式开启时暂停 session */
             if (!monitor_control_auto_enabled()) {
@@ -106,9 +108,10 @@ static void cloud_task(void *arg)
             /* ── 1. 累积到睡眠会话 ───────────────── */
             session_on_data(&feat);
 
-            /* ── 2. 实时气泵控制（本地规则，LLM override 时跳过）── */
+            /* ── 2. 实时气泵控制 ── */
             memset(&cmd, 0, sizeof(cmd));
-            if (!llm_periodic_override_active()) {
+            if (monitor_control_get_pump_mode() == PUMP_MODE_LOCAL ||
+                !llm_periodic_override_active()) {
                 pump_evaluate_local_rule(&feat, &cmd);
 
                 if (strcmp(cmd.action, "hold") != 0) {
