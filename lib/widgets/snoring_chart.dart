@@ -18,7 +18,11 @@ class SnoringChart extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check_circle_outline, size: 40, color: Colors.green.shade400),
+              Icon(
+                Icons.check_circle_outline,
+                size: 40,
+                color: Colors.green.shade400,
+              ),
               const SizedBox(height: 8),
               Text(
                 '今晚没有检测到打鼾',
@@ -41,7 +45,7 @@ class SnoringChart extends StatelessWidget {
               getTooltipItem: (group, groupIndex, rod, rodIndex) {
                 final event = events[group.x.toInt()];
                 return BarTooltipItem(
-                  '${event.avgDecibel.toStringAsFixed(0)} dB\n${event.durationMinutes} 分钟',
+                  '${event.avgDecibel.toStringAsFixed(0)} dB\n${event.durationMinutes.toStringAsFixed(1)} 分钟',
                   const TextStyle(color: Colors.white, fontSize: 12),
                 );
               },
@@ -61,7 +65,10 @@ class SnoringChart extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
                       DateFormat('HH:mm').format(events[index].startTime),
-                      style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   );
                 },
@@ -81,18 +88,20 @@ class SnoringChart extends StatelessWidget {
                 },
               ),
             ),
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            rightTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
           ),
           borderData: FlBorderData(show: false),
           gridData: FlGridData(
             show: true,
             drawVerticalLine: false,
             horizontalInterval: 20,
-            getDrawingHorizontalLine: (value) => FlLine(
-              color: Colors.grey.shade200,
-              strokeWidth: 1,
-            ),
+            getDrawingHorizontalLine: (value) =>
+                FlLine(color: Colors.grey.shade200, strokeWidth: 1),
           ),
           barGroups: events.asMap().entries.map((entry) {
             final intensity = entry.value.avgDecibel / 70; // Normalize
@@ -107,7 +116,9 @@ class SnoringChart extends StatelessWidget {
                     intensity.clamp(0, 1),
                   ),
                   width: 24,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(6),
+                  ),
                 ),
               ],
             );

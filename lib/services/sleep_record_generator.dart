@@ -27,6 +27,7 @@ class SleepRecordGenerator {
     required List<PostureReading> readings,
     required String userId,
     SnoreResult? snoreResult,
+    List<SnoringEvent>? realtimeSnoringEvents,
   }) {
     if (readings.isEmpty) {
       throw ArgumentError('readings 不能为空');
@@ -52,19 +53,23 @@ class SleepRecordGenerator {
     }
 
     // 3. 夜间起身次数 = 压力段之间的间隙数
-    final getUpCount =
-        pressureSegments.isEmpty ? 0 : pressureSegments.length - 1;
+    final getUpCount = pressureSegments.isEmpty
+        ? 0
+        : pressureSegments.length - 1;
 
     // 4. 提取姿态段
     final postureSegments = _extractPostureSegments(sorted);
 
     // 5. 转换打鼾事件
-    final snoringEvents = _convertSnoreEvents(snoreResult, bedTime);
+    final snoringEvents =
+        realtimeSnoringEvents ?? _convertSnoreEvents(snoreResult, bedTime);
 
     // 6. 计算离床总时长
     final totalDurationMin = wakeTime.difference(bedTime).inMinutes;
-    final actualSleepMin =
-        pressureSegments.fold(0, (sum, seg) => sum + seg.durationMinutes);
+    final actualSleepMin = pressureSegments.fold(
+      0,
+      (sum, seg) => sum + seg.durationMinutes,
+    );
     final awayMin = totalDurationMin - actualSleepMin;
 
     // 7. 计算睡眠评分
@@ -110,20 +115,18 @@ class SleepRecordGenerator {
         segStart ??= r.timestamp;
       } else {
         if (segStart != null) {
-          rawSegments.add(PressureSegment(
-            startTime: segStart,
-            endTime: r.timestamp,
-          ));
+          rawSegments.add(
+            PressureSegment(startTime: segStart, endTime: r.timestamp),
+          );
           segStart = null;
         }
       }
     }
     // 最后一段仍在床上
     if (segStart != null) {
-      rawSegments.add(PressureSegment(
-        startTime: segStart,
-        endTime: readings.last.timestamp,
-      ));
+      rawSegments.add(
+        PressureSegment(startTime: segStart, endTime: readings.last.timestamp),
+      );
     }
 
     if (rawSegments.isEmpty) return [];
@@ -131,17 +134,18 @@ class SleepRecordGenerator {
     // 第二步：合并间隙短于 minGetUpGapSeconds 的相邻段
     final merged = <PressureSegment>[rawSegments.first];
     for (int i = 1; i < rawSegments.length; i++) {
-      final gap = rawSegments[i]
-          .startTime
+      final gap = rawSegments[i].startTime
           .difference(merged.last.endTime)
           .inSeconds;
       if (gap < minGetUpGapSeconds) {
         // 合并：扩展上一段的结束时间
         final prev = merged.removeLast();
-        merged.add(PressureSegment(
-          startTime: prev.startTime,
-          endTime: rawSegments[i].endTime,
-        ));
+        merged.add(
+          PressureSegment(
+            startTime: prev.startTime,
+            endTime: rawSegments[i].endTime,
+          ),
+        );
       } else {
         merged.add(rawSegments[i]);
       }
@@ -172,12 +176,14 @@ class SleepRecordGenerator {
         count++;
       } else {
         // 姿态发生变化，结束当前段
-        segments.add(PostureSegment(
-          startTime: segStart,
-          endTime: r.timestamp,
-          posture: currentPosture,
-          avgConfidence: confidenceSum / count,
-        ));
+        segments.add(
+          PostureSegment(
+            startTime: segStart,
+            endTime: r.timestamp,
+            posture: currentPosture,
+            avgConfidence: confidenceSum / count,
+          ),
+        );
         currentPosture = r.posture;
         segStart = r.timestamp;
         confidenceSum = r.confidence;
@@ -186,12 +192,14 @@ class SleepRecordGenerator {
     }
 
     // 最后一段
-    segments.add(PostureSegment(
-      startTime: segStart,
-      endTime: readings.last.timestamp,
-      posture: currentPosture,
-      avgConfidence: confidenceSum / count,
-    ));
+    segments.add(
+      PostureSegment(
+        startTime: segStart,
+        endTime: readings.last.timestamp,
+        posture: currentPosture,
+        avgConfidence: confidenceSum / count,
+      ),
+    );
 
     return segments;
   }
@@ -234,13 +242,11 @@ class SleepRecordGenerator {
 
     // 高概率打鼾（平均概率 > 0.7）
     if (snoringEvents.isNotEmpty) {
-      final meanProb = snoringEvents
+      final meanProb =
+          snoringEvents
               .where((e) => e.avgProbability != null)
               .fold(0.0, (sum, e) => sum + e.avgProbability!) /
-          max(
-            1,
-            snoringEvents.where((e) => e.avgProbability != null).length,
-          );
+          max(1, snoringEvents.where((e) => e.avgProbability != null).length);
       if (meanProb > 0.7) {
         score -= 5;
       }

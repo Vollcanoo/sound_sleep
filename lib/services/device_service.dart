@@ -40,18 +40,20 @@ class DeviceService extends ChangeNotifier {
       final List<dynamic> list = jsonDecode(raw);
       for (final item in list) {
         final map = item as Map<String, dynamic>;
-        _boundDevices.add(Device(
-          id: map['id'] as String,
-          name: map['name'] as String,
-          macAddress: map['macAddress'] as String,
-          type: map['type'] as String? ?? '睡眠监测仪',
-          firmwareVersion: map['firmwareVersion'] as String? ?? 'v1.0.0',
-          batteryLevel: (map['batteryLevel'] as int?) ?? 100,
-          isConnected: false,
-          boundAt: map['boundAt'] != null
-              ? DateTime.parse(map['boundAt'] as String)
-              : null,
-        ));
+        _boundDevices.add(
+          Device(
+            id: map['id'] as String,
+            name: map['name'] as String,
+            macAddress: map['macAddress'] as String,
+            type: map['type'] as String? ?? '睡眠监测仪',
+            firmwareVersion: map['firmwareVersion'] as String? ?? 'v1.0.0',
+            batteryLevel: (map['batteryLevel'] as int?) ?? 100,
+            isConnected: false,
+            boundAt: map['boundAt'] != null
+                ? DateTime.parse(map['boundAt'] as String)
+                : null,
+          ),
+        );
       }
       notifyListeners();
     }
@@ -59,15 +61,19 @@ class DeviceService extends ChangeNotifier {
 
   Future<void> _persistBoundDevices() async {
     final prefs = await SharedPreferences.getInstance();
-    final list = _boundDevices.map((d) => {
-      'id': d.id,
-      'name': d.name,
-      'macAddress': d.macAddress,
-      'type': d.type,
-      'firmwareVersion': d.firmwareVersion,
-      'batteryLevel': d.batteryLevel,
-      'boundAt': d.boundAt?.toIso8601String(),
-    }).toList();
+    final list = _boundDevices
+        .map(
+          (d) => {
+            'id': d.id,
+            'name': d.name,
+            'macAddress': d.macAddress,
+            'type': d.type,
+            'firmwareVersion': d.firmwareVersion,
+            'batteryLevel': d.batteryLevel,
+            'boundAt': d.boundAt?.toIso8601String(),
+          },
+        )
+        .toList();
     await prefs.setString(_boundDevicesKey, jsonEncode(list));
   }
 
@@ -137,7 +143,7 @@ class DeviceService extends ChangeNotifier {
   }
 
   Future<Device> bindDevice(Device device) async {
-    if (device.bleDevice != null) {
+    if (device.bleDevice != null && !_bleDataService.isConnected) {
       try {
         await _bleDataService.connectAndSubscribe(device.bleDevice!);
       } catch (e) {
@@ -152,6 +158,16 @@ class DeviceService extends ChangeNotifier {
     notifyListeners();
     await _persistBoundDevices();
     return bound;
+  }
+
+  Future<void> connectForProvisioning(Device device) async {
+    final bleDevice = device.bleDevice;
+    if (bleDevice == null) {
+      throw StateError('Selected device has no BLE handle');
+    }
+    if (_bleDataService.isConnected) return;
+
+    await _bleDataService.connectAndSubscribe(bleDevice);
   }
 
   Future<void> unbindDevice(String deviceId) async {
@@ -201,10 +217,7 @@ class DeviceService extends ChangeNotifier {
       if (found == null) return false;
 
       await _bleDataService.connectAndSubscribe(found!);
-      _boundDevices[idx] = device.copyWith(
-        isConnected: true,
-        bleDevice: found,
-      );
+      _boundDevices[idx] = device.copyWith(isConnected: true, bleDevice: found);
       notifyListeners();
       return true;
     } catch (e) {

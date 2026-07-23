@@ -333,6 +333,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 12),
+                                if (realtimeProvider.currentSnoreReading !=
+                                    null)
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 10,
+                                      horizontal: 14,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          realtimeProvider
+                                              .currentSnoreReading!
+                                              .detected
+                                          ? const Color(0xFFFFF3E0)
+                                          : Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.graphic_eq,
+                                          size: 18,
+                                          color:
+                                              realtimeProvider
+                                                  .currentSnoreReading!
+                                                  .detected
+                                              ? const Color(0xFFE65100)
+                                              : Colors.grey.shade600,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          realtimeProvider
+                                                  .currentSnoreReading!
+                                                  .detected
+                                              ? '检测到鼾声'
+                                              : '未检测到鼾声',
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          '概率 ${(realtimeProvider.currentSnoreReading!.probability * 100).toStringAsFixed(0)}%',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 const SizedBox(height: 16),
                                 // 监测时长
                                 if (realtimeProvider.monitoringStart != null)
@@ -501,7 +549,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           child: StatCard(
                             icon: Icons.volume_up,
                             label: '打鼾时长',
-                            value: '${latestRecord.snoringTotalMinutes}分钟',
+                            value:
+                                '${latestRecord.snoringTotalMinutes.toStringAsFixed(1)}分钟',
                             iconColor: const Color(0xFFFF9800),
                           ),
                         ),

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/posture_event.dart';
+import '../models/realtime_snore_reading.dart';
 
 /// BLE UART Service UUIDs（Nordic UART Service）
 /// ESP32-S3 通过此服务串流姿态 CSV 数据
@@ -26,6 +27,7 @@ class BleDataService extends ChangeNotifier {
 
   // 当前状态
   PostureReading? _latestReading;
+  RealtimeSnoreReading? _latestSnoreReading;
   bool _isConnected = false;
   bool _isReceivingData = false;
   DateTime? _sessionStart;
@@ -35,17 +37,22 @@ class BleDataService extends ChangeNotifier {
 
   // 实时数据流
   final _readingController = StreamController<PostureReading>.broadcast();
+  final _snoreReadingController =
+      StreamController<RealtimeSnoreReading>.broadcast();
   final _connectionController = StreamController<bool>.broadcast();
   final _rawResponseController = StreamController<List<int>>.broadcast();
 
   // ── Getters ──
 
   PostureReading? get latestReading => _latestReading;
+  RealtimeSnoreReading? get latestSnoreReading => _latestSnoreReading;
   bool get isConnected => _isConnected;
   bool get isReceivingData => _isReceivingData;
   DateTime? get sessionStart => _sessionStart;
   List<PostureReading> get readings => List.unmodifiable(_readings);
   Stream<PostureReading> get readingStream => _readingController.stream;
+  Stream<RealtimeSnoreReading> get snoreReadingStream =>
+      _snoreReadingController.stream;
   Stream<bool> get connectionStream => _connectionController.stream;
   Stream<List<int>> get rawResponseStream => _rawResponseController.stream;
 
@@ -136,8 +143,14 @@ class BleDataService extends ChangeNotifier {
     }
   }
 
-  /// 解析一行完整的 CSV 数据
+  /// Parses one newline-delimited BLE message. Posture readings use CSV while
+  /// model inference results and command acknowledgements use JSON.
   void _processLine(String line) {
+    if (line.startsWith('{')) {
+      _processJsonLine(line);
+      return;
+    }
+
     try {
       final reading = PostureReading.fromCsv(line);
 
@@ -158,6 +171,24 @@ class BleDataService extends ChangeNotifier {
       notifyListeners();
     } on FormatException catch (e) {
       debugPrint('CSV 解析失败: $e — 原始行: $line');
+    }
+  }
+
+  void _processJsonLine(String line) {
+    try {
+      final decoded = jsonDecode(line);
+      if (decoded is! Map<String, dynamic> || decoded['type'] != 'snore') {
+        return;
+      }
+
+      final reading = RealtimeSnoreReading.fromJson(decoded);
+      _latestSnoreReading = reading;
+      if (!_snoreReadingController.isClosed) {
+        _snoreReadingController.add(reading);
+      }
+      notifyListeners();
+    } on FormatException catch (e) {
+      debugPrint('BLE JSON parse failed: $e');
     }
   }
 
@@ -216,6 +247,7 @@ class BleDataService extends ChangeNotifier {
     _txCharacteristic = null;
     _rxCharacteristic = null;
     _buffer = '';
+    _latestSnoreReading = null;
     _isConnected = false;
     _isReceivingData = false;
     _connectionController.add(false);
@@ -248,6 +280,7 @@ class BleDataService extends ChangeNotifier {
   void startSession() {
     _readings.clear();
     _latestReading = null;
+    _latestSnoreReading = null;
     _sessionStart = DateTime.now();
     _isReceivingData = false;
     notifyListeners();
@@ -265,6 +298,7 @@ class BleDataService extends ChangeNotifier {
   void dispose() {
     disconnect();
     _readingController.close();
+    _snoreReadingController.close();
     _connectionController.close();
     _rawResponseController.close();
     super.dispose();

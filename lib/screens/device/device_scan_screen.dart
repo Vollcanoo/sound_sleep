@@ -98,7 +98,6 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                     width: 100,
                     height: 100,
                     child: AnimatedBuilder(
-
                       animation: _pulseController,
                       builder: (context, child) {
                         return Stack(
@@ -107,7 +106,8 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                             // Pulse rings
                             for (int i = 0; i < 3; i++)
                               Transform.scale(
-                                scale: 0.5 +
+                                scale:
+                                    0.5 +
                                     ((_pulseController.value + i * 0.33) %
                                             1.0) *
                                         0.8,
@@ -118,7 +118,8 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                                     shape: BoxShape.circle,
                                     border: Border.all(
                                       color: AppTheme.primaryBlue.withValues(
-                                        alpha: (1.0 -
+                                        alpha:
+                                            (1.0 -
                                                 ((_pulseController.value +
                                                         i * 0.33) %
                                                     1.0)) *
@@ -151,10 +152,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                   const SizedBox(height: 16),
                   Text(
                     '正在搜索附近的蓝牙设备...',
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
                   ),
                 ],
               ),
@@ -168,19 +166,26 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.bluetooth_disabled,
-                        size: 64, color: Colors.grey.shade300),
+                    Icon(
+                      Icons.bluetooth_disabled,
+                      size: 64,
+                      color: Colors.grey.shade300,
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       '未发现可用设备',
                       style: TextStyle(
-                          fontSize: 16, color: Colors.grey.shade500),
+                        fontSize: 16,
+                        color: Colors.grey.shade500,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       '请确保设备已开启并在附近',
                       style: TextStyle(
-                          fontSize: 13, color: Colors.grey.shade400),
+                        fontSize: 13,
+                        color: Colors.grey.shade400,
+                      ),
                     ),
                     const SizedBox(height: 24),
                     ElevatedButton.icon(
@@ -214,8 +219,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                     child: ListView.builder(
                       itemCount: deviceProvider.scannedDevices.length,
                       itemBuilder: (context, index) {
-                        final device =
-                            deviceProvider.scannedDevices[index];
+                        final device = deviceProvider.scannedDevices[index];
                         return DeviceTile(
                           device: device,
                           isBound: false,
@@ -223,12 +227,29 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                             // 如果是真实 BLE 设备（有 bleDevice），
                             // 导航到 WiFi 配置页面进行配网
                             if (device.bleDevice != null) {
+                              try {
+                                await deviceProvider.connectForProvisioning(
+                                  device,
+                                );
+                              } catch (_) {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      '无法连接 ${device.name}，请确认设备仍在广播',
+                                    ),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                                return;
+                              }
+
                               final result = await Navigator.of(context)
                                   .push<bool>(
-                                MaterialPageRoute(
-                                  builder: (_) => const WifiConfigScreen(),
-                                ),
-                              );
+                                    MaterialPageRoute(
+                                      builder: (_) => const WifiConfigScreen(),
+                                    ),
+                                  );
 
                               if (context.mounted && result == true) {
                                 // 配网成功 → 绑定设备
@@ -236,8 +257,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text(
-                                          '${device.name} 配网并绑定成功'),
+                                      content: Text('${device.name} 配网并绑定成功'),
                                       backgroundColor: Colors.green,
                                     ),
                                   );
@@ -250,8 +270,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content:
-                                        Text('${device.name} 绑定成功'),
+                                    content: Text('${device.name} 绑定成功'),
                                     backgroundColor: Colors.green,
                                   ),
                                 );

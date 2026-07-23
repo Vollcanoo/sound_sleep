@@ -14,30 +14,29 @@ class SnoringEvent {
     this.avgProbability,
   });
 
-  int get durationMinutes => endTime.difference(startTime).inMinutes;
+  double get durationMinutes =>
+      endTime.difference(startTime).inMilliseconds /
+      Duration.millisecondsPerMinute;
 }
 
 /// 压力传感器事件：记录一段连续的有压力时间
 /// 从 startTime 到 endTime 之间传感器持续检测到压力（人在床上）
 class PressureSegment {
   final DateTime startTime; // 感受到压力（上床/回床）
-  final DateTime endTime;   // 压力消失（离床/起身）
+  final DateTime endTime; // 压力消失（离床/起身）
 
-  PressureSegment({
-    required this.startTime,
-    required this.endTime,
-  });
+  PressureSegment({required this.startTime, required this.endTime});
 
   int get durationMinutes => endTime.difference(startTime).inMinutes;
 }
 
 /// AI 分析结果（由云端 LLM 返回）
 class AiAnalysis {
-  final String summary;             // 一句话总结
-  final List<String> insights;      // 具体分析要点
-  final List<String> suggestions;   // 改善建议
-  final DateTime analyzedAt;        // 分析时间
-  final String? model;              // 使用的模型名
+  final String summary; // 一句话总结
+  final List<String> insights; // 具体分析要点
+  final List<String> suggestions; // 改善建议
+  final DateTime analyzedAt; // 分析时间
+  final String? model; // 使用的模型名
 
   AiAnalysis({
     required this.summary,
@@ -58,14 +57,14 @@ class SleepRecord {
   final String id;
   final String userId;
   final DateTime date;
-  final DateTime bedTime;   // 首次感受到压力
-  final DateTime wakeTime;  // 最终压力消失
-  final int sleepScore;     // 0-100
+  final DateTime bedTime; // 首次感受到压力
+  final DateTime wakeTime; // 最终压力消失
+  final int sleepScore; // 0-100
   final List<SnoringEvent> snoringEvents;
   final List<PressureSegment> pressureSegments; // 各段有压力的时间片段
-  final List<PostureSegment> postureSegments;   // 各段姿态数据
-  final int getUpCount;     // 夜间起身次数
-  AiAnalysis? aiAnalysis;   // 云端 LLM 分析结果（可为 null，异步获取）
+  final List<PostureSegment> postureSegments; // 各段姿态数据
+  final int getUpCount; // 夜间起身次数
+  AiAnalysis? aiAnalysis; // 云端 LLM 分析结果（可为 null，异步获取）
 
   SleepRecord({
     required this.id,
@@ -104,8 +103,10 @@ class SleepRecord {
   /// 离床总时长（分钟）
   int get awayMinutes => durationMinutes - actualSleepMinutes;
 
-  int get snoringTotalMinutes =>
-      snoringEvents.fold(0, (sum, e) => sum + e.durationMinutes);
+  double get snoringTotalMinutes => snoringEvents.fold<double>(
+    0.0,
+    (sum, event) => sum + event.durationMinutes,
+  );
 
   double get snoringMaxDecibel => snoringEvents.isEmpty
       ? 0.0
@@ -131,9 +132,7 @@ class SleepRecord {
   String get dominantPostureLabel {
     if (postureSegments.isEmpty) return '无数据';
     final dist = postureDistribution;
-    final dominant = dist.entries.reduce(
-      (a, b) => a.value >= b.value ? a : b,
-    );
+    final dominant = dist.entries.reduce((a, b) => a.value >= b.value ? a : b);
     return dominant.key.label;
   }
 }

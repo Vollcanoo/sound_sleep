@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/posture_event.dart';
+import '../models/realtime_snore_reading.dart';
 import '../models/sleep_record.dart';
 import '../models/snore_result.dart';
 import '../services/ble_data_service.dart';
@@ -17,14 +18,17 @@ class RealtimeProvider extends ChangeNotifier {
   final SleepService _sleepService;
 
   StreamSubscription? _readingSubscription;
+  StreamSubscription? _snoreReadingSubscription;
 
   // ── 监测状态 ──
   bool _isMonitoring = false;
   PostureReading? _currentReading;
+  RealtimeSnoreReading? _currentSnoreReading;
   DateTime? _monitoringStart;
 
   // ── 累积的会话数据 ──
   final List<PostureReading> _sessionReadings = [];
+  final List<RealtimeSnoreReading> _sessionSnoreReadings = [];
 
   // ── 设备连接状态 ──
   bool _isDeviceConnected = false;
@@ -50,6 +54,7 @@ class RealtimeProvider extends ChangeNotifier {
   bool get isMonitoring => _isMonitoring;
   bool get isDeviceConnected => _isDeviceConnected;
   PostureReading? get currentReading => _currentReading;
+  RealtimeSnoreReading? get currentSnoreReading => _currentSnoreReading;
   DateTime? get monitoringStart => _monitoringStart;
   int get readingCount => _sessionReadings.length;
   bool get isOnBed => _currentReading?.isOnBed ?? false;
@@ -81,6 +86,16 @@ class RealtimeProvider extends ChangeNotifier {
       }
       notifyListeners();
     });
+    _snoreReadingSubscription = _bleService.snoreReadingStream.listen((
+      reading,
+    ) {
+      _currentSnoreReading = reading;
+      _sessionSnoreReadings.add(reading);
+      if (_sessionSnoreReadings.length > 43200) {
+        _sessionSnoreReadings.removeAt(0);
+      }
+      notifyListeners();
+    });
 
     notifyListeners();
   }
@@ -95,6 +110,8 @@ class RealtimeProvider extends ChangeNotifier {
     _isMonitoring = false;
     _readingSubscription?.cancel();
     _readingSubscription = null;
+    _snoreReadingSubscription?.cancel();
+    _snoreReadingSubscription = null;
 
     if (_sessionReadings.isEmpty) {
       notifyListeners();
@@ -102,14 +119,19 @@ class RealtimeProvider extends ChangeNotifier {
     }
 
     // 从云端获取打鼾检测结果
+    final realtimeSnoreReadings = List<RealtimeSnoreReading>.from(
+      _sessionSnoreReadings,
+    );
     SnoreResult? snoreResult;
-    try {
-      snoreResult = await _snoreService.fetchSnoreResult(
-        patientId: userId,
-        date: DateTime.now(),
-      );
-    } catch (e) {
-      debugPrint('Failed to fetch snore result: $e');
+    if (realtimeSnoreReadings.isEmpty) {
+      try {
+        snoreResult = await _snoreService.fetchSnoreResult(
+          patientId: userId,
+          date: DateTime.now(),
+        );
+      } catch (e) {
+        debugPrint('Failed to fetch snore result: $e');
+      }
     }
 
     // 从真实传感器数据生成睡眠记录
@@ -117,21 +139,79 @@ class RealtimeProvider extends ChangeNotifier {
       readings: _sessionReadings,
       userId: userId,
       snoreResult: snoreResult,
+      realtimeSnoringEvents: realtimeSnoreReadings.isEmpty
+          ? null
+          : _buildRealtimeSnoringEvents(realtimeSnoreReadings),
     );
 
     // 存储到 SleepService
     _sleepService.addRecord(record);
 
     _sessionReadings.clear();
+    _sessionSnoreReadings.clear();
     _currentReading = null;
+    _currentSnoreReading = null;
     notifyListeners();
 
     return record;
   }
 
+  List<SnoringEvent> _buildRealtimeSnoringEvents(
+    List<RealtimeSnoreReading> readings,
+  ) {
+    final detected = readings.where((reading) => reading.detected).toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    if (detected.isEmpty) return [];
+
+    final events = <SnoringEvent>[];
+    var start = detected.first.timestamp;
+    var end = start.add(
+      Duration(milliseconds: (detected.first.windowSeconds * 1000).round()),
+    );
+    var probabilitySum = detected.first.probability;
+    var count = 1;
+
+    for (final reading in detected.skip(1)) {
+      final readingEnd = reading.timestamp.add(
+        Duration(milliseconds: (reading.windowSeconds * 1000).round()),
+      );
+      const gapTolerance = Duration(seconds: 2);
+      if (!reading.timestamp.isAfter(end.add(gapTolerance))) {
+        if (readingEnd.isAfter(end)) end = readingEnd;
+        probabilitySum += reading.probability;
+        count++;
+        continue;
+      }
+
+      events.add(
+        SnoringEvent(
+          startTime: start,
+          endTime: end,
+          avgDecibel: 0.0,
+          avgProbability: probabilitySum / count,
+        ),
+      );
+      start = reading.timestamp;
+      end = readingEnd;
+      probabilitySum = reading.probability;
+      count = 1;
+    }
+
+    events.add(
+      SnoringEvent(
+        startTime: start,
+        endTime: end,
+        avgDecibel: 0.0,
+        avgProbability: probabilitySum / count,
+      ),
+    );
+    return events;
+  }
+
   @override
   void dispose() {
     _readingSubscription?.cancel();
+    _snoreReadingSubscription?.cancel();
     super.dispose();
   }
 }

@@ -19,8 +19,10 @@ class DeviceProvider extends ChangeNotifier {
 
   Future<void> scanDevices() => _deviceService.scanDevices();
 
-  Future<void> bindDevice(Device device) =>
-      _deviceService.bindDevice(device);
+  Future<void> bindDevice(Device device) => _deviceService.bindDevice(device);
+
+  Future<void> connectForProvisioning(Device device) =>
+      _deviceService.connectForProvisioning(device);
 
   Future<void> unbindDevice(String deviceId) =>
       _deviceService.unbindDevice(deviceId);

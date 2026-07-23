@@ -57,8 +57,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
             // ── 评分卡片 ──
             Card(
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 28,
+                  horizontal: 24,
+                ),
                 child: Row(
                   children: [
                     SleepScoreRing(score: record.sleepScore, size: 120),
@@ -113,8 +115,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _SectionTitle(
-                        icon: Icons.timeline, title: '睡眠时段'),
+                    const _SectionTitle(icon: Icons.timeline, title: '睡眠时段'),
                     const SizedBox(height: 16),
                     SleepStageChart(
                       bedTime: record.bedTime,
@@ -175,7 +176,8 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                     label: '打鼾次数',
                     value: '${record.snoringEvents.length}次',
                     color: const Color(0xFFFF9800),
-                    subtitle: '共${record.snoringTotalMinutes}分钟',
+                    subtitle:
+                        '共${record.snoringTotalMinutes.toStringAsFixed(1)}分钟',
                   ),
                 ),
               ],
@@ -199,10 +201,13 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                         if (record.snoringEvents.isNotEmpty)
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFF9800)
-                                  .withValues(alpha: 0.1),
+                              color: const Color(
+                                0xFFFF9800,
+                              ).withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -304,8 +309,8 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
             child: isAnalyzing
                 ? _buildAnalyzingState()
                 : aiAnalysis != null
-                    ? _buildAnalysisResult(aiAnalysis)
-                    : _buildNoAnalysis(),
+                ? _buildAnalysisResult(aiAnalysis)
+                : _buildNoAnalysis(),
           ),
         ],
       ),
@@ -331,10 +336,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
             const SizedBox(width: 12),
             Text(
               '正在分析你的睡眠数据...',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -345,8 +347,8 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
   /// 分析结果展示
   Widget _buildAnalysisResult(AiAnalysis aiAnalysis) {
-    final isLocalRules = aiAnalysis.model != null &&
-        aiAnalysis.model!.contains('本地规则');
+    final isLocalRules =
+        aiAnalysis.model != null && aiAnalysis.model!.contains('本地规则');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -362,8 +364,11 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
             ),
             child: Row(
               children: [
-                Icon(Icons.warning_amber_rounded,
-                    size: 20, color: Colors.orange.shade700),
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 20,
+                  color: Colors.orange.shade700,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -391,7 +396,11 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.summarize, size: 18, color: AppTheme.primaryBlue),
+              const Icon(
+                Icons.summarize,
+                size: 18,
+                color: AppTheme.primaryBlue,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -419,34 +428,36 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          ...aiAnalysis.insights.map<Widget>((insight) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      margin: const EdgeInsets.only(top: 6),
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: AppTheme.primaryBlue,
-                        shape: BoxShape.circle,
+          ...aiAnalysis.insights.map<Widget>(
+            (insight) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.primaryBlue,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      insight,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade700,
+                        height: 1.5,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        insight,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade700,
-                          height: 1.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              )),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
         ],
 
@@ -530,6 +541,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       ],
     );
   }
+
   /// ── 睡姿分布区域 ──
   Widget _buildPostureSection(SleepRecord record) {
     final hasPostureData = record.postureSegments.isNotEmpty;
@@ -551,7 +563,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                 if (hasPostureData)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: AppTheme.primaryBlue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
@@ -582,7 +596,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       ),
     );
   }
-
 }
 
 // ── 子组件 ──
@@ -674,23 +687,20 @@ class _DataCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text(
                   label,
-                  style:
-                      TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                 ),
               ],
             ),
             const SizedBox(height: 10),
             Text(
               value,
-              style:
-                  const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 4),
               Text(
                 subtitle!,
-                style:
-                    TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
               ),
             ],
           ],
