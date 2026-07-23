@@ -445,6 +445,12 @@ int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
 {
     if (!summary || !report_out || report_size == 0) return -1;
 
+    if (strlen(VOLCENGINE_API_KEY) == 0 ||
+        strcmp(VOLCENGINE_API_KEY, "your-volcengine-api-key-here") == 0) {
+        ESP_LOGW(TAG, "LLM summary skipped: no valid API key configured in secrets.h");
+        return -1;
+    }
+
     char *post_data = build_summary_request_json(summary);
     if (!post_data) return -3;
 
@@ -466,6 +472,8 @@ int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
         .event_handler  = http_event_handler,
         .user_data      = &resp_ctx,
         .timeout_ms     = 30000,
+        .buffer_size    = 2048,
+        .buffer_size_tx = 2048,
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
