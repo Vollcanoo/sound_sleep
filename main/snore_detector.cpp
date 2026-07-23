@@ -1,7 +1,9 @@
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "audio_capture.hpp"
+#include "ble_uart_server.h"
 #include "dl_model_base.hpp"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
@@ -74,7 +76,7 @@ void snore_task(void *arg)
     }
 
     while (true) {
-        if (!monitor_control_is_enabled()) {
+        if (!monitor_control_manual_enabled()) {
             vTaskDelay(pdMS_TO_TICKS(200));
             continue;
         }
@@ -88,6 +90,18 @@ void snore_task(void *arg)
             };
             reading.detected = reading.probability >= 0.5F;
             xQueueOverwrite(s_result_queue, &reading);
+            if (ble_uart_is_connected()) {
+                char message[128];
+                const int length = snprintf(
+                    message, sizeof(message),
+                    "{\"type\":\"snore\",\"probability\":%.4f,\"detected\":%s,\"window_seconds\":%.3f}\n",
+                    reading.probability,
+                    reading.detected ? "true" : "false",
+                    reading.window_seconds);
+                if (length > 0 && static_cast<size_t>(length) < sizeof(message)) {
+                    ble_uart_send(message, static_cast<size_t>(length));
+                }
+            }
             ESP_LOGI(kTag, "probability=%.3f detected=%s", reading.probability,
                      reading.detected ? "yes" : "no");
         }

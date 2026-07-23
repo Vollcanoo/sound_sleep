@@ -19,6 +19,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * 初始化 NimBLE 栈，注册 NUS Service，开始 GAP 广播。
  * 调用一次即可，之后自动广播等待手机连接。
@@ -51,5 +55,9 @@ void ble_uart_send(const char *data, size_t len);
  * 查询是否有客户端已连接。
  */
 bool ble_uart_is_connected(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* BLE_UART_SERVER_H */
