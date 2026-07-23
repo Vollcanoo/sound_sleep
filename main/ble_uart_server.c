@@ -26,6 +26,7 @@
 
 #include "ble_uart_server.h"
 #include "monitor_control.h"
+#include "llm_periodic.h"
 #include "posture_sensor.h"
 #include "wifi_provision.h"
 #include "wifi_manager.h"
@@ -106,6 +107,7 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
             } else if (strcmp(buf, "monitor_stop") == 0) {
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"monitor_stopped\"}";
                 monitor_control_set_manual(false);
+                llm_periodic_reset();
                 ble_uart_send(reply, strlen(reply));
                 ESP_LOGI(TAG, "Manual monitoring disabled by BLE");
             } else if (strcmp(buf, "wifi_clear") == 0) {

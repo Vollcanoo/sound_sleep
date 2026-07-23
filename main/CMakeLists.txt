@@ -1,7 +1,7 @@
 set(base_sources
     "main.c" "wifi_manager.c" "cloud_llm_client.c" "cloud_upload.c"
     "pump_controller.c" "pump_rules.c" "ble_uart_server.c" "sleep_session.c"
-    "wifi_provision.c" "posture_sensor.c" "monitor_control.c")
+    "wifi_provision.c" "posture_sensor.c" "monitor_control.c" "llm_periodic.c")
 set(snore_model "${CMAKE_CURRENT_LIST_DIR}/models/snoring_esp32_int8.espdl")
 
 if(EXISTS "${snore_model}")

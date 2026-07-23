@@ -14,6 +14,7 @@
  */
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
 #include "esp_tls.h"
@@ -534,4 +535,243 @@ int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
     cJSON_free(post_data);
     free(resp_buffer);
     return result;
+}
+
+/* ────────────────────────────────────────────────────
+ *  5 分钟窗口 LLM 分析 — 只返回气泵控制指令
+ * ──────────────────────────────────────────────────── */
+
+static const char *WINDOW_SYSTEM_PROMPT =
+    "你是睡眠气囊控制AI。根据过去5分钟的传感器聚合数据，决定气泵控制指令。\n\n"
+    "你必须严格按照以下JSON格式回复，不要附加任何其他文本：\n"
+    "{\"command\":{\"action\":\"inflate|deflate|hold\","
+    "\"zone\":\"left|right|both\","
+    "\"intensity\":0到100的整数,"
+    "\"duration_sec\":5到30的整数}}\n\n"
+    "硬件说明：\n"
+    "- 枕头内置左/右两个独立气囊\n"
+    "- 充气某一侧会抬高该侧，促使用户头部偏向另一侧\n\n"
+    "决策规则：\n"
+    "- 无鼾声(snore_detected_ratio<0.1) → hold\n"
+    "- 仰卧为主 + 鼾声严重(snore_minutes_per_hour>=4) → inflate right, intensity 60-80\n"
+    "- 仰卧为主 + 鼾声中等(2-4分钟/时) → inflate right, intensity 30-50\n"
+    "- 仰卧为主 + 鼾声轻微(<2分钟/时) → hold\n"
+    "- 左侧卧为主 + 鼾声严重 → inflate left, intensity 50-70\n"
+    "- 右侧卧为主 + 鼾声严重 → inflate right, intensity 50-70\n"
+    "- max_probability>0.9 且 snore_detected_ratio>0.3 → 非常严重, intensity 70-80\n"
+    "- 当前翻身中(MOVING) → hold\n"
+    "- confidence<0.5 → 保守处理，降低intensity\n"
+    "- duration_sec 按 intensity 比例在 5-20 秒区间调节";
+
+static char *build_window_request_json(const llm_window_summary_t *window)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return NULL;
+
+    cJSON_AddStringToObject(root, "model", VOLCENGINE_MODEL);
+    cJSON_AddNumberToObject(root, "temperature", 0.3);
+    cJSON_AddNumberToObject(root, "max_tokens", 200);
+
+    cJSON *messages = cJSON_AddArrayToObject(root, "messages");
+
+    cJSON *sys_msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(sys_msg, "role", "system");
+    cJSON_AddStringToObject(sys_msg, "content", WINDOW_SYSTEM_PROMPT);
+    cJSON_AddItemToArray(messages, sys_msg);
+
+    float snore_detected_ratio = window->frame_count > 0
+        ? (float)window->snore_detected_frames / window->frame_count : 0.0f;
+
+    char user_content[512];
+    snprintf(user_content, sizeof(user_content),
+        "过去5分钟传感器聚合数据：\n"
+        "采样帧数: %d (约%.0f秒)\n"
+        "平均鼾声概率: %.4f\n"
+        "最大鼾声概率: %.4f\n"
+        "平均正窗占比: %.4f\n"
+        "每小时鼾声分钟: %.2f\n"
+        "鼾声检出帧占比: %.4f (%d/%d)\n"
+        "姿势分布(秒): 仰卧=%d, 左侧=%d, 右侧=%d, 翻身=%d, 离枕=%d\n"
+        "主要姿势: %s\n"
+        "当前姿势: %s (置信度%.2f)\n",
+        window->frame_count,
+        (float)window->frame_count,
+        window->avg_mean_probability,
+        window->max_probability,
+        window->avg_positive_ratio,
+        window->snore_minutes_per_hour,
+        snore_detected_ratio,
+        window->snore_detected_frames, window->frame_count,
+        window->posture_seconds[POSTURE_SUPINE],
+        window->posture_seconds[POSTURE_LEFT_SIDE],
+        window->posture_seconds[POSTURE_RIGHT_SIDE],
+        window->posture_seconds[POSTURE_MOVING],
+        window->posture_seconds[POSTURE_NO_HEAD],
+        posture_name(window->dominant_posture),
+        posture_name(window->last_posture),
+        window->last_confidence);
+
+    cJSON *user_msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(user_msg, "role", "user");
+    cJSON_AddStringToObject(user_msg, "content", user_content);
+    cJSON_AddItemToArray(messages, user_msg);
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return json_str;
+}
+
+static int parse_window_response_json(const char *response_body,
+                                      pump_command_t *cmd_out)
+{
+    cJSON *root = cJSON_Parse(response_body);
+    if (!root) {
+        ESP_LOGE(TAG, "Window 响应 JSON 解析失败");
+        return -2;
+    }
+
+    cJSON *choices = cJSON_GetObjectItem(root, "choices");
+    if (!cJSON_IsArray(choices) || cJSON_GetArraySize(choices) == 0) {
+        cJSON_Delete(root);
+        return -2;
+    }
+
+    cJSON *message = cJSON_GetObjectItem(cJSON_GetArrayItem(choices, 0), "message");
+    cJSON *content = cJSON_GetObjectItem(message, "content");
+    if (!cJSON_IsString(content) || content->valuestring == NULL) {
+        cJSON_Delete(root);
+        return -2;
+    }
+
+    ESP_LOGI(TAG, "Window LLM 回复: %s", content->valuestring);
+
+    cJSON *result = cJSON_Parse(content->valuestring);
+    if (!result) {
+        const char *start = strchr(content->valuestring, '{');
+        const char *end   = strrchr(content->valuestring, '}');
+        if (start && end && end > start) {
+            int len = (int)(end - start + 1);
+            char *trimmed = malloc(len + 1);
+            if (trimmed) {
+                memcpy(trimmed, start, len);
+                trimmed[len] = '\0';
+                result = cJSON_Parse(trimmed);
+                free(trimmed);
+            }
+        }
+        if (!result) {
+            cJSON_Delete(root);
+            return -2;
+        }
+    }
+
+    cJSON *cmd = cJSON_GetObjectItem(result, "command");
+    if (cmd) {
+        cJSON *action = cJSON_GetObjectItem(cmd, "action");
+        cJSON *zone   = cJSON_GetObjectItem(cmd, "zone");
+        cJSON *inten  = cJSON_GetObjectItem(cmd, "intensity");
+        cJSON *dur    = cJSON_GetObjectItem(cmd, "duration_sec");
+
+        if (cJSON_IsString(action)) {
+            strncpy(cmd_out->action, action->valuestring, sizeof(cmd_out->action) - 1);
+            cmd_out->action[sizeof(cmd_out->action) - 1] = '\0';
+        } else {
+            strncpy(cmd_out->action, "hold", sizeof(cmd_out->action) - 1);
+        }
+
+        if (cJSON_IsString(zone)) {
+            strncpy(cmd_out->zone, zone->valuestring, sizeof(cmd_out->zone) - 1);
+            cmd_out->zone[sizeof(cmd_out->zone) - 1] = '\0';
+        } else {
+            strncpy(cmd_out->zone, "right", sizeof(cmd_out->zone) - 1);
+        }
+
+        cmd_out->intensity    = cJSON_IsNumber(inten) ? inten->valueint : 0;
+        cmd_out->duration_sec = cJSON_IsNumber(dur)   ? dur->valueint   : 10;
+
+        if (cmd_out->intensity < 0)    cmd_out->intensity = 0;
+        if (cmd_out->intensity > 100)  cmd_out->intensity = 100;
+        if (cmd_out->duration_sec < 1) cmd_out->duration_sec = 1;
+        if (cmd_out->duration_sec > 60) cmd_out->duration_sec = 60;
+    } else {
+        strncpy(cmd_out->action, "hold", sizeof(cmd_out->action) - 1);
+        strncpy(cmd_out->zone, "both", sizeof(cmd_out->zone) - 1);
+        cmd_out->intensity = 0;
+        cmd_out->duration_sec = 0;
+    }
+
+    cJSON_Delete(result);
+    cJSON_Delete(root);
+    return 0;
+}
+
+int cloud_llm_analyze_window(const llm_window_summary_t *window,
+                             pump_command_t *cmd_out)
+{
+    if (!window || !cmd_out) return -1;
+
+    if (strlen(VOLCENGINE_API_KEY) == 0 ||
+        strcmp(VOLCENGINE_API_KEY, "your-volcengine-api-key-here") == 0) {
+        ESP_LOGW(TAG, "Window LLM skipped: no valid API key");
+        return -1;
+    }
+
+    char *post_data = build_window_request_json(window);
+    if (!post_data) return -3;
+
+    char *resp_buffer = calloc(1, MAX_RESPONSE_LEN);
+    if (!resp_buffer) {
+        cJSON_free(post_data);
+        return -3;
+    }
+
+    http_response_t resp_ctx = {
+        .buffer     = resp_buffer,
+        .buffer_len = MAX_RESPONSE_LEN,
+        .data_len   = 0,
+    };
+
+    esp_http_client_config_t config = {
+        .url            = VOLCENGINE_API_URL,
+        .method         = HTTP_METHOD_POST,
+        .event_handler  = http_event_handler,
+        .user_data      = &resp_ctx,
+        .timeout_ms     = 30000,
+        .buffer_size    = 2048,
+        .buffer_size_tx = 2048,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        cJSON_free(post_data);
+        free(resp_buffer);
+        return -1;
+    }
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    char auth_header[128];
+    snprintf(auth_header, sizeof(auth_header), "Bearer %s", VOLCENGINE_API_KEY);
+    esp_http_client_set_header(client, "Authorization", auth_header);
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+
+    ESP_LOGI(TAG, "Window LLM 请求发送...");
+    esp_err_t err = esp_http_client_perform(client);
+    int ret = -1;
+
+    if (err == ESP_OK) {
+        int status_code = esp_http_client_get_status_code(client);
+        if (status_code == 200 && resp_ctx.data_len > 0) {
+            ret = parse_window_response_json(resp_buffer, cmd_out);
+        } else {
+            ESP_LOGE(TAG, "Window API error: HTTP %d", status_code);
+        }
+    } else {
+        ESP_LOGE(TAG, "Window HTTP failed: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+    cJSON_free(post_data);
+    free(resp_buffer);
+    return ret;
 }

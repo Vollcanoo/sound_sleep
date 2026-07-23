@@ -67,4 +67,30 @@ int cloud_llm_analyze(const snore_features_t *feat,
 int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
                               char *report_out, size_t report_size);
 
+/**
+ * 5 分钟窗口聚合数据 — 用于周期性 LLM 气泵控制
+ */
+typedef struct {
+    int   frame_count;
+    float avg_mean_probability;
+    float max_probability;
+    float avg_positive_ratio;
+    float snore_minutes_per_hour;
+    int   snore_detected_frames;
+    int   posture_seconds[POSTURE_COUNT];
+    posture_t dominant_posture;
+    posture_t last_posture;
+    float last_confidence;
+} llm_window_summary_t;
+
+/**
+ * 5 分钟窗口 LLM 分析 — 只返回气泵控制指令，不生成报告。
+ *
+ * @param window   5 分钟聚合数据
+ * @param cmd_out  输出: 气泵控制指令
+ * @return  0 = 成功, -1 = 网络/API key 错误, -2 = JSON 解析错误, -3 = 内存不足
+ */
+int cloud_llm_analyze_window(const llm_window_summary_t *window,
+                             pump_command_t *cmd_out);
+
 #endif /* CLOUD_LLM_CLIENT_H */

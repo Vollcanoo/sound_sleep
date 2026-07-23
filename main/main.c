@@ -44,6 +44,7 @@
 #include "posture_sensor.h"
 #include "snore_detector.h"
 #include "sleep_session.h"
+#include "llm_periodic.h"
 
 static const char *TAG = "MAIN";
 
@@ -79,6 +80,9 @@ static void cloud_task(void *arg)
     while (1) {
         if (xQueueReceive(g_feature_queue, &feat, portMAX_DELAY) == pdTRUE) {
 
+            /* 两种模式都喂 LLM 周期模块 */
+            llm_periodic_on_frame(&feat);
+
             /* 自动模式 gate：手动模式开启时暂停 session */
             if (!monitor_control_auto_enabled()) {
                 if (auto_was_active) {
@@ -102,15 +106,17 @@ static void cloud_task(void *arg)
             /* ── 1. 累积到睡眠会话 ───────────────── */
             session_on_data(&feat);
 
-            /* ── 2. 实时气泵控制（本地规则，不调 LLM）── */
+            /* ── 2. 实时气泵控制（本地规则，LLM override 时跳过）── */
             memset(&cmd, 0, sizeof(cmd));
-            pump_evaluate_local_rule(&feat, &cmd);
+            if (!llm_periodic_override_active()) {
+                pump_evaluate_local_rule(&feat, &cmd);
 
-            if (strcmp(cmd.action, "hold") != 0) {
-                ESP_LOGI(TAG, "🎮 气泵指令: %s %s (强度%d%%, %ds)",
-                         cmd.action, cmd.zone, cmd.intensity, cmd.duration_sec);
-                if (xQueueSend(s_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) != pdTRUE) {
-                    ESP_LOGW(TAG, "气泵指令队列已满，丢弃本次指令");
+                if (strcmp(cmd.action, "hold") != 0) {
+                    ESP_LOGI(TAG, "🎮 气泵指令: %s %s (强度%d%%, %ds)",
+                             cmd.action, cmd.zone, cmd.intensity, cmd.duration_sec);
+                    if (xQueueSend(s_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) != pdTRUE) {
+                        ESP_LOGW(TAG, "气泵指令队列已满，丢弃本次指令");
+                    }
                 }
             }
 
@@ -165,6 +171,7 @@ static void cloud_task(void *arg)
 
                 /* 重置会话，等待下一次睡眠 */
                 session_reset();
+                llm_periodic_reset();
             }
         }
     }
@@ -363,6 +370,9 @@ void app_main(void)
         ESP_LOGE(TAG, "队列创建失败！");
         return;
     }
+
+    /* 初始化 LLM 周期控制 */
+    llm_periodic_init(s_cmd_queue);
 
     /* 启动工作任务 */
     xTaskCreate(cloud_task, "cloud", 16384, NULL, 3, NULL);
