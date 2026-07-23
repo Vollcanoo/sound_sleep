@@ -7,7 +7,6 @@ import 'screens/auth/register_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/report/report_detail_screen.dart';
 import 'screens/device/device_scan_screen.dart';
-import 'screens/device/wifi_config_screen.dart';
 import 'screens/profile/profile_edit_screen.dart';
 
 class SleepApp extends StatelessWidget {
@@ -16,7 +15,7 @@ class SleepApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: '睡了吗',
+      title: '静界',
       theme: AppTheme.lightTheme,
       debugShowCheckedModeBanner: false,
       routerConfig: _router(context),

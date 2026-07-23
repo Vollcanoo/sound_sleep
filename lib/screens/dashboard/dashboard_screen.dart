@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/sleep_score_ring.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/weekly_bar_chart.dart';
+import '../report/report_detail_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -423,10 +424,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     onPressed: () async {
                                       final userId =
                                           authProvider.user?.id ?? '';
-                                      await realtimeProvider
+                                      final record = await realtimeProvider
                                           .stopMonitoringAndGenerateReport(
                                             userId,
                                           );
+                                      if (context.mounted && record != null) {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => ReportDetailScreen(
+                                              recordId: record.id,
+                                            ),
+                                          ),
+                                        );
+                                      }
                                     },
                                     icon: const Icon(
                                       Icons.stop_circle_outlined,

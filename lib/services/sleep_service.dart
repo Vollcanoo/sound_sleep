@@ -3,7 +3,7 @@ import '../models/sleep_record.dart';
 import '../config/cloudbase_config.dart';
 import 'cloud_sync_service.dart';
 
-class SleepService {
+class SleepService extends ChangeNotifier {
   final List<SleepRecord> _records = [];
   CloudSyncService? _cloudSync;
 
@@ -36,19 +36,20 @@ class SleepService {
 
   List<SleepRecord> getRecentRecords(int days) {
     final sorted = List<SleepRecord>.from(_records)
-      ..sort((a, b) => b.date.compareTo(a.date));
+      ..sort((a, b) => b.bedTime.compareTo(a.bedTime));
     return sorted.take(days).toList();
   }
 
   SleepRecord? get latestRecord {
     if (_records.isEmpty) return null;
     final sorted = List<SleepRecord>.from(_records)
-      ..sort((a, b) => b.date.compareTo(a.date));
+      ..sort((a, b) => b.bedTime.compareTo(a.bedTime));
     return sorted.first;
   }
 
   void addRecord(SleepRecord record) {
     _records.add(record);
+    notifyListeners();
     if (CloudBaseConfig.isConfigured && _cloudSync != null) {
       _cloudSync!.uploadSleepRecord(record).catchError((e) {
         debugPrint('[SleepService] 后台上传失败: $e');
@@ -59,5 +60,6 @@ class SleepService {
   void addRecordLocal(SleepRecord record) {
     if (_records.any((r) => r.id == record.id)) return;
     _records.add(record);
+    notifyListeners();
   }
 }

@@ -14,7 +14,18 @@ class SleepProvider extends ChangeNotifier {
   bool _isSyncing = false;
 
   SleepProvider(this._sleepService, this._cloudSync) {
+    _sleepService.addListener(_onRecordsChanged);
     fetchFromCloud();
+  }
+
+  void _onRecordsChanged() {
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _sleepService.removeListener(_onRecordsChanged);
+    super.dispose();
   }
 
   List<SleepRecord> get records => _sleepService.getRecords();
