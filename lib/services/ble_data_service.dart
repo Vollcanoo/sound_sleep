@@ -36,6 +36,7 @@ class BleDataService extends ChangeNotifier {
   // 实时数据流
   final _readingController = StreamController<PostureReading>.broadcast();
   final _connectionController = StreamController<bool>.broadcast();
+  final _rawResponseController = StreamController<List<int>>.broadcast();
 
   // ── Getters ──
 
@@ -46,6 +47,7 @@ class BleDataService extends ChangeNotifier {
   List<PostureReading> get readings => List.unmodifiable(_readings);
   Stream<PostureReading> get readingStream => _readingController.stream;
   Stream<bool> get connectionStream => _connectionController.stream;
+  Stream<List<int>> get rawResponseStream => _rawResponseController.stream;
 
   // ── 连接与订阅 ──
 
@@ -115,6 +117,10 @@ class BleDataService extends ChangeNotifier {
 
   /// 处理收到的 BLE 数据（可能是不完整的 CSV 行）
   void _onDataReceived(List<int> data) {
+    if (!_rawResponseController.isClosed) {
+      _rawResponseController.add(data);
+    }
+
     final chunk = utf8.decode(data, allowMalformed: true);
     _buffer += chunk;
 
@@ -137,6 +143,9 @@ class BleDataService extends ChangeNotifier {
 
       _latestReading = reading;
       _readings.add(reading);
+      if (_readings.length > 43200) {
+        _readings.removeAt(0);
+      }
 
       if (!_isReceivingData) {
         _isReceivingData = true;
@@ -167,6 +176,18 @@ class BleDataService extends ChangeNotifier {
       return true;
     } catch (e) {
       debugPrint('发送指令失败: $e');
+      return false;
+    }
+  }
+
+  /// 向 ESP32 发送原始字节（用于 WiFi 配网 JSON）
+  Future<bool> sendRawBytes(List<int> bytes) async {
+    if (_rxCharacteristic == null || !_isConnected) return false;
+    try {
+      await _rxCharacteristic!.write(bytes, withoutResponse: false);
+      return true;
+    } catch (e) {
+      debugPrint('sendRawBytes 失败: $e');
       return false;
     }
   }
@@ -245,6 +266,7 @@ class BleDataService extends ChangeNotifier {
     disconnect();
     _readingController.close();
     _connectionController.close();
+    _rawResponseController.close();
     super.dispose();
   }
 }

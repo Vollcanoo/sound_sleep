@@ -226,9 +226,7 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                               final result = await Navigator.of(context)
                                   .push<bool>(
                                 MaterialPageRoute(
-                                  builder: (_) => WifiConfigScreen(
-                                    device: device.bleDevice!,
-                                  ),
+                                  builder: (_) => const WifiConfigScreen(),
                                 ),
                               );
 

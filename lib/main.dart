@@ -40,6 +40,7 @@ class AppBootstrap extends StatelessWidget {
 
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider.value(value: bleDataService),
         ChangeNotifierProvider(create: (_) => AuthProvider(authService)),
         ChangeNotifierProvider(
           create: (_) => SleepProvider(sleepService, cloudSyncService),

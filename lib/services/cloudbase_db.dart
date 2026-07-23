@@ -48,14 +48,21 @@ class CloudBaseDB {
     String? orderBy,
     int limit = 100,
   }) async {
-    final params = <String>['limit=$limit'];
-    if (where != null) params.add(where);
-    if (orderBy != null) params.add('order=$orderBy');
+    final queryParams = <String, String>{'limit': '$limit'};
+    if (where != null) {
+      for (final part in where.split('&')) {
+        final eqIdx = part.indexOf('=');
+        if (eqIdx > 0) {
+          queryParams[part.substring(0, eqIdx)] = part.substring(eqIdx + 1);
+        }
+      }
+    }
+    if (orderBy != null) queryParams['order'] = orderBy;
 
-    final url = '${_tablePath(table)}?${params.join('&')}';
+    final uri = Uri.parse(_tablePath(table)).replace(queryParameters: queryParams);
 
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers);
+      final resp = await http.get(uri, headers: _headers);
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         if (resp.body.isEmpty) return [];
         final decoded = jsonDecode(resp.body);
@@ -76,9 +83,16 @@ class CloudBaseDB {
   ///
   /// [where] 过滤条件，如 "id=eq.5"
   Future<bool> delete(String table, {required String where}) async {
-    final url = '${_tablePath(table)}?$where';
+    final queryParams = <String, String>{};
+    for (final part in where.split('&')) {
+      final eqIdx = part.indexOf('=');
+      if (eqIdx > 0) {
+        queryParams[part.substring(0, eqIdx)] = part.substring(eqIdx + 1);
+      }
+    }
+    final uri = Uri.parse(_tablePath(table)).replace(queryParameters: queryParams);
     try {
-      final resp = await http.delete(Uri.parse(url), headers: _headers);
+      final resp = await http.delete(uri, headers: _headers);
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         return true;
       }

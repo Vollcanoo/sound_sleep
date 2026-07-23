@@ -76,6 +76,9 @@ class RealtimeProvider extends ChangeNotifier {
     _readingSubscription = _bleService.readingStream.listen((reading) {
       _currentReading = reading;
       _sessionReadings.add(reading);
+      if (_sessionReadings.length > 43200) {
+        _sessionReadings.removeAt(0);
+      }
       notifyListeners();
     });
 

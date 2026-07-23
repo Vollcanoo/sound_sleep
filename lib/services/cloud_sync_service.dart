@@ -21,7 +21,7 @@ class CloudSyncService {
         'duration_minutes': record.durationMinutes,
         'sleep_score': record.sleepScore,
         'get_up_count': record.getUpCount,
-        'device_id': 'device_001',
+        'device_id': 'device_esp32',
         'created_at': DateTime.now().toIso8601String(),
       });
 

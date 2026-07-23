@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:provider/provider.dart';
+import '../../services/ble_data_service.dart';
 import '../../services/wifi_provision_service.dart';
 import '../../theme/app_theme.dart';
 
 /// WiFi 配置界面
 ///
-/// 用户在设备扫描页面点击 SleepMonitor 设备后跳转到此页面，
-/// 输入 WiFi SSID 和密码，发送到 ESP32 完成配网。
+/// 通过已有的 BLE 连接向 ESP32 发送 WiFi 凭据完成配网。
 class WifiConfigScreen extends StatefulWidget {
-  final BluetoothDevice device;
-
-  const WifiConfigScreen({super.key, required this.device});
+  const WifiConfigScreen({super.key});
 
   @override
   State<WifiConfigScreen> createState() => _WifiConfigScreenState();
@@ -20,24 +18,22 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
   final _ssidController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  final _provisionService = WifiProvisionService();
+  late final WifiProvisionService _provisionService;
 
   bool _obscurePassword = true;
-  bool _isConnecting = false;
 
   @override
   void initState() {
     super.initState();
+    final bleDataService = context.read<BleDataService>();
+    _provisionService = WifiProvisionService(bleDataService: bleDataService);
     _provisionService.addListener(_onStateChanged);
-    _connectDevice();
   }
 
   @override
   void dispose() {
     _provisionService.removeListener(_onStateChanged);
-    if (_provisionService.state != WifiProvisionState.success) {
-      _provisionService.dispose();
-    }
+    _provisionService.dispose();
     _ssidController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -45,24 +41,6 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
 
   void _onStateChanged() {
     if (mounted) setState(() {});
-  }
-
-  Future<void> _connectDevice() async {
-    setState(() => _isConnecting = true);
-    try {
-      await _provisionService.connect(widget.device);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('连接设备失败: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isConnecting = false);
-    }
   }
 
   Future<void> _sendCredentials() async {
@@ -74,10 +52,9 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
     final success = await _provisionService.sendWifiCredentials(ssid, password);
 
     if (mounted && success) {
-      // 配网成功，延迟后返回
       await Future.delayed(const Duration(seconds: 2));
       if (mounted) {
-        Navigator.of(context).pop(true); // 返回 true 表示配网成功
+        Navigator.of(context).pop(true);
       }
     }
   }
@@ -89,8 +66,7 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
         title: const Text('WiFi 配置'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () async {
-            await _provisionService.disconnect();
+          onPressed: () {
             if (mounted) Navigator.of(context).pop(false);
           },
         ),
@@ -100,21 +76,14 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── 设备信息卡片 ──
             _buildDeviceCard(),
             const SizedBox(height: 24),
-
-            // ── 状态指示 ──
             if (_provisionService.state != WifiProvisionState.idle)
               _buildStatusCard(),
             if (_provisionService.state != WifiProvisionState.idle)
               const SizedBox(height: 24),
-
-            // ── WiFi 输入表单 ──
             if (_provisionService.state != WifiProvisionState.success)
               _buildWifiForm(),
-
-            // ── 配网成功 ──
             if (_provisionService.state == WifiProvisionState.success)
               _buildSuccessCard(),
           ],
@@ -123,7 +92,10 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
     );
   }
 
+  // PLACEHOLDER_WIDGETS
+
   Widget _buildDeviceCard() {
+    final bleService = context.read<BleDataService>();
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -152,41 +124,24 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    widget.device.platformName.isNotEmpty
-                        ? widget.device.platformName
-                        : 'SleepMonitor',
-                    style: const TextStyle(
+                  const Text(
+                    'SleepMonitor',
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _isConnecting
-                        ? '正在连接...'
-                        : (_provisionService.state == WifiProvisionState.failed
-                            ? '连接失败'
-                            : '已连接'),
+                    bleService.isConnected ? '已连接' : '未连接',
                     style: TextStyle(
                       fontSize: 13,
-                      color: _isConnecting
-                          ? Colors.orange
-                          : (_provisionService.state ==
-                                  WifiProvisionState.failed
-                              ? Colors.red
-                              : Colors.green),
+                      color: bleService.isConnected ? Colors.green : Colors.red,
                     ),
                   ),
                 ],
               ),
             ),
-            if (_isConnecting)
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
           ],
         ),
       ),
@@ -197,8 +152,7 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
     final state = _provisionService.state;
     final isError = state == WifiProvisionState.failed;
     final isProgress = state == WifiProvisionState.sending ||
-        state == WifiProvisionState.waiting ||
-        state == WifiProvisionState.connecting;
+        state == WifiProvisionState.waiting;
 
     return Card(
       elevation: 0,
@@ -253,9 +207,7 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
             ),
             if (isError)
               TextButton(
-                onPressed: () {
-                  _provisionService.reset();
-                },
+                onPressed: () => _provisionService.reset(),
                 child: const Text('重试'),
               ),
           ],
@@ -264,8 +216,10 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
     );
   }
 
+  // PLACEHOLDER_FORM_AND_SUCCESS
+
   Widget _buildWifiForm() {
-    final isDisabled = _isConnecting ||
+    final isDisabled =
         _provisionService.state == WifiProvisionState.sending ||
         _provisionService.state == WifiProvisionState.waiting;
 
@@ -274,7 +228,6 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 提示文字
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -283,24 +236,18 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
             ),
             child: Row(
               children: [
-                Icon(Icons.info_outline,
-                    size: 18, color: Colors.amber.shade700),
+                Icon(Icons.info_outline, size: 18, color: Colors.amber.shade700),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     '请输入 2.4GHz WiFi 信息，设备不支持 5GHz 网络',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.amber.shade800,
-                    ),
+                    style: TextStyle(fontSize: 13, color: Colors.amber.shade800),
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 20),
-
-          // SSID 输入
           TextFormField(
             controller: _ssidController,
             enabled: !isDisabled,
@@ -313,18 +260,12 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
               ),
             ),
             validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return '请输入 WiFi 名称';
-              }
-              if (value.trim().length > 32) {
-                return 'WiFi 名称不能超过 32 个字符';
-              }
+              if (value == null || value.trim().isEmpty) return '请输入 WiFi 名称';
+              if (value.trim().length > 32) return 'WiFi 名称不能超过 32 个字符';
               return null;
             },
           ),
           const SizedBox(height: 16),
-
-          // 密码输入
           TextFormField(
             controller: _passwordController,
             enabled: !isDisabled,
@@ -335,9 +276,7 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
               prefixIcon: const Icon(Icons.lock_outline),
               suffixIcon: IconButton(
                 icon: Icon(
-                  _obscurePassword
-                      ? Icons.visibility_off
-                      : Icons.visibility,
+                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
                 ),
                 onPressed: () {
                   setState(() => _obscurePassword = !_obscurePassword);
@@ -348,18 +287,12 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
               ),
             ),
             validator: (value) {
-              if (value == null || value.isEmpty) {
-                return '请输入 WiFi 密码';
-              }
-              if (value.length < 8) {
-                return 'WiFi 密码至少 8 位 (WPA2)';
-              }
+              if (value == null || value.isEmpty) return '请输入 WiFi 密码';
+              if (value.length < 8) return 'WiFi 密码至少 8 位 (WPA2)';
               return null;
             },
           ),
           const SizedBox(height: 24),
-
-          // 发送按钮
           SizedBox(
             height: 48,
             child: ElevatedButton.icon(
@@ -384,50 +317,34 @@ class _WifiConfigScreenState extends State<WifiConfigScreen> {
   }
 
   Widget _buildSuccessCard() {
-    return Card(
-      elevation: 0,
-      color: Colors.green.withValues(alpha: 0.08),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.green.withValues(alpha: 0.3)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
-        child: Column(
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: Colors.green.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.check_circle,
-                color: Colors.green,
-                size: 40,
-              ),
+    return Center(
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: Colors.green.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
             ),
-            const SizedBox(height: 16),
-            const Text(
-              '配网成功！',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Colors.green,
-              ),
+            child: const Icon(Icons.check_circle, color: Colors.green, size: 40),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            '配网成功！',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: Colors.green,
             ),
-            const SizedBox(height: 8),
-            Text(
-              '设备已连接到 WiFi 网络\n正在返回...',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '设备已连接到 WiFi 网络\n正在返回...',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+          ),
+        ],
       ),
     );
   }
