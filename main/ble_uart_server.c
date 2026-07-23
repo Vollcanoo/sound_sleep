@@ -31,6 +31,8 @@
 #include "wifi_manager.h"
 #include "freertos/semphr.h"
 
+static volatile bool s_wifi_connecting = false;
+
 static void wifi_connect_task(void *arg)
 {
     char ssid[33] = {0};
@@ -49,6 +51,7 @@ static void wifi_connect_task(void *arg)
             ESP_LOGW("BLE_PROV", "Async WiFi connect failed");
         }
     }
+    s_wifi_connecting = false;
     vTaskDelete(NULL);
 }
 
@@ -115,7 +118,8 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
             else if (buf[0] == '{') {
                 ESP_LOGI(TAG, "检测到 JSON 数据，处理配网...");
                 esp_err_t prov_ret = wifi_provision_handle_ble_data(buf, copied);
-                if (prov_ret == ESP_OK && !wifi_manager_is_connected()) {
+                if (prov_ret == ESP_OK && !wifi_manager_is_connected() && !s_wifi_connecting) {
+                    s_wifi_connecting = true;
                     xTaskCreate(wifi_connect_task, "wifi_conn", 4096, NULL, 3, NULL);
                 }
             }

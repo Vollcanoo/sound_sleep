@@ -405,7 +405,8 @@ static int upload_sleep_record(const sleep_session_summary_t *summary,
 /* ────────────────────────────────────────────────────
  *  Step 2: 插入 ai_analyses
  * ──────────────────────────────────────────────────── */
-static int upload_ai_analysis(int record_id, const char *ai_report)
+static int upload_ai_analysis(int record_id, const char *ai_report,
+                              const sleep_session_summary_t *summary)
 {
     if (!ai_report || ai_report[0] == '\0') {
         ESP_LOGI(TAG, "无 AI 报告，跳过 ai_analyses");
@@ -424,10 +425,32 @@ static int upload_ai_analysis(int record_id, const char *ai_report)
                  "2026-01-01T00:00:00Z");
     }
 
-    /* suggestions: 从报告中提取几条建议，这里简化为单条 */
     cJSON *suggestions = cJSON_CreateArray();
-    cJSON_AddItemToArray(suggestions, cJSON_CreateString("保持侧卧睡姿，减少鼾声"));
-    cJSON_AddItemToArray(suggestions, cJSON_CreateString("建议规律作息，提高睡眠质量"));
+    if (summary->snore_minutes_per_hour >= 2.0f) {
+        cJSON_AddItemToArray(suggestions,
+            cJSON_CreateString("鼾声较频繁，建议侧卧睡眠以减轻气道阻塞"));
+    }
+    if (summary->dominant_posture == POSTURE_SUPINE &&
+        summary->total_snore_minutes > 5.0f) {
+        cJSON_AddItemToArray(suggestions,
+            cJSON_CreateString("仰卧时间较长且有鼾声，尝试调整为侧卧位"));
+    }
+    if (summary->get_up_count > 2) {
+        cJSON_AddItemToArray(suggestions,
+            cJSON_CreateString("夜间起身较多，睡前减少饮水可改善连续性"));
+    }
+    if (summary->posture_change_count > 20) {
+        cJSON_AddItemToArray(suggestions,
+            cJSON_CreateString("翻身频繁，检查卧室温度和床垫舒适度"));
+    }
+    if (summary->duration_minutes < 420) {
+        cJSON_AddItemToArray(suggestions,
+            cJSON_CreateString("睡眠不足7小时，建议提前入睡保证充足休息"));
+    }
+    if (cJSON_GetArraySize(suggestions) == 0) {
+        cJSON_AddItemToArray(suggestions,
+            cJSON_CreateString("保持良好作息习惯，坚持规律的睡眠时间"));
+    }
     char *suggestions_str = cJSON_PrintUnformatted(suggestions);
     cJSON_Delete(suggestions);
 
@@ -640,7 +663,7 @@ int cloud_upload_sleep_record(const sleep_session_summary_t *summary,
     ESP_LOGI(TAG, "✓ sleep_records 上传成功, record_id=%d", record_id);
 
     /* Step 2: 插入 ai_analyses */
-    ret = upload_ai_analysis(record_id, ai_report);
+    ret = upload_ai_analysis(record_id, ai_report, summary);
     if (ret != 0) {
         ESP_LOGW(TAG, "✗ ai_analyses 上传失败，继续...");
         overall_result = ret;

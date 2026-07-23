@@ -138,8 +138,8 @@ static void cloud_task(void *arg)
 
                 /* ── 调用 LLM 生成整晚分析报告 ──── */
                 char report[512] = {0};
-                int ret = cloud_llm_analyze(&summary.last_features,
-                                            report, sizeof(report), &cmd);
+                int ret = cloud_llm_analyze_summary(&summary,
+                                                    report, sizeof(report));
                 if (ret == 0) {
                     ESP_LOGI(TAG, "📋 AI 分析报告: %s", report);
                 } else {

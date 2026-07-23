@@ -3,6 +3,7 @@
 #define CLOUD_LLM_CLIENT_H
 
 #include "snore_feature.h"
+#include "sleep_session.h"
 
 /*
  * ============================================================
@@ -54,5 +55,16 @@ typedef struct {
 int cloud_llm_analyze(const snore_features_t *feat,
                       char *report_out, size_t report_size,
                       pump_command_t *cmd_out);
+
+/**
+ * 睡眠结束后调用 — 用整晚汇总数据生成睡眠分析报告。
+ *
+ * @param summary     整晚睡眠会话汇总
+ * @param report_out  输出: 睡眠分析报告文本
+ * @param report_size 输出缓冲区大小
+ * @return  0 = 成功, -1 = 网络错误, -2 = JSON 解析错误, -3 = 内存不足
+ */
+int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
+                              char *report_out, size_t report_size);
 
 #endif /* CLOUD_LLM_CLIENT_H */

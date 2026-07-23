@@ -92,7 +92,6 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
         }
         break;
     }
-        break;
     case HTTP_EVENT_ON_FINISH:
     case HTTP_EVENT_DISCONNECTED:
         break;
@@ -364,5 +363,167 @@ int cloud_llm_analyze(const snore_features_t *feat,
     cJSON_free(post_data);
     free(resp_buffer);
 
+    return result;
+}
+
+/* ────────────────────────────────────────────────────
+ *  睡眠结束后 — 用整晚汇总调用 LLM 生成分析报告
+ * ──────────────────────────────────────────────────── */
+
+static const char *SUMMARY_SYSTEM_PROMPT =
+    "你是专业的睡眠健康分析AI。根据用户提供的整晚睡眠汇总数据，生成一份睡眠分析报告。\n\n"
+    "你必须严格按照以下JSON格式回复，不要附加任何其他文本：\n"
+    "{\"report\":\"分析报告文本(中文,150字左右)\","
+    "\"suggestions\":[\"建议1\",\"建议2\",\"建议3\"]}\n\n"
+    "数据说明：\n"
+    "- duration_minutes: 总睡眠时长(分钟)\n"
+    "- get_up_count: 起身次数\n"
+    "- total_snore_minutes: 累计鼾声时长(分钟)\n"
+    "- snore_minutes_per_hour: 每小时鼾声分钟数\n"
+    "- dominant_posture: 主要睡姿\n"
+    "- posture_change_count: 翻身次数\n"
+    "- sleep_score: 睡眠评分(0-100)\n\n"
+    "分析要点：\n"
+    "- 评价总体睡眠质量\n"
+    "- 分析鼾声严重程度及可能原因\n"
+    "- 分析睡姿对呼吸的影响\n"
+    "- 给出 3 条具体改善建议";
+
+static char *build_summary_request_json(const sleep_session_summary_t *summary)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return NULL;
+
+    cJSON_AddStringToObject(root, "model", VOLCENGINE_MODEL);
+    cJSON_AddNumberToObject(root, "temperature", 0.3);
+    cJSON_AddNumberToObject(root, "max_tokens", 600);
+
+    cJSON *messages = cJSON_AddArrayToObject(root, "messages");
+
+    cJSON *sys_msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(sys_msg, "role", "system");
+    cJSON_AddStringToObject(sys_msg, "content", SUMMARY_SYSTEM_PROMPT);
+    cJSON_AddItemToArray(messages, sys_msg);
+
+    char user_content[512];
+    snprintf(user_content, sizeof(user_content),
+        "整晚睡眠汇总数据：\n"
+        "睡眠时长: %d 分钟 (%.1f 小时)\n"
+        "起身次数: %d\n"
+        "累计鼾声: %.1f 分钟\n"
+        "每小时鼾声: %.2f 分钟\n"
+        "最大鼾声概率: %.2f\n"
+        "平均鼾声概率: %.2f\n"
+        "鼾声事件次数: %d\n"
+        "主要睡姿: %s\n"
+        "翻身次数: %d\n"
+        "睡眠评分: %d\n",
+        summary->duration_minutes,
+        summary->duration_minutes / 60.0f,
+        summary->get_up_count,
+        summary->total_snore_minutes,
+        summary->snore_minutes_per_hour,
+        summary->max_snore_probability,
+        summary->mean_snore_probability,
+        summary->snore_event_count,
+        posture_name(summary->dominant_posture),
+        summary->posture_change_count,
+        summary->sleep_score);
+
+    cJSON *user_msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(user_msg, "role", "user");
+    cJSON_AddStringToObject(user_msg, "content", user_content);
+    cJSON_AddItemToArray(messages, user_msg);
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return json_str;
+}
+
+int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
+                              char *report_out, size_t report_size)
+{
+    if (!summary || !report_out || report_size == 0) return -1;
+
+    char *post_data = build_summary_request_json(summary);
+    if (!post_data) return -3;
+
+    char *resp_buffer = calloc(1, MAX_RESPONSE_LEN);
+    if (!resp_buffer) {
+        cJSON_free(post_data);
+        return -3;
+    }
+
+    http_response_t resp_ctx = {
+        .buffer     = resp_buffer,
+        .buffer_len = MAX_RESPONSE_LEN,
+        .data_len   = 0,
+    };
+
+    esp_http_client_config_t config = {
+        .url            = VOLCENGINE_API_URL,
+        .method         = HTTP_METHOD_POST,
+        .event_handler  = http_event_handler,
+        .user_data      = &resp_ctx,
+        .timeout_ms     = 30000,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        cJSON_free(post_data);
+        free(resp_buffer);
+        return -1;
+    }
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    char auth_header[128];
+    snprintf(auth_header, sizeof(auth_header), "Bearer %s", VOLCENGINE_API_KEY);
+    esp_http_client_set_header(client, "Authorization", auth_header);
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+
+    esp_err_t err = esp_http_client_perform(client);
+    int result = -1;
+
+    if (err == ESP_OK) {
+        int status_code = esp_http_client_get_status_code(client);
+        if (status_code == 200 && resp_ctx.data_len > 0) {
+            cJSON *root = cJSON_Parse(resp_buffer);
+            if (root) {
+                cJSON *choices = cJSON_GetObjectItem(root, "choices");
+                if (cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0) {
+                    cJSON *msg = cJSON_GetObjectItem(
+                        cJSON_GetArrayItem(choices, 0), "message");
+                    cJSON *content = cJSON_GetObjectItem(msg, "content");
+                    if (cJSON_IsString(content)) {
+                        cJSON *inner = cJSON_Parse(content->valuestring);
+                        if (inner) {
+                            cJSON *report = cJSON_GetObjectItem(inner, "report");
+                            if (cJSON_IsString(report)) {
+                                snprintf(report_out, report_size, "%s",
+                                         report->valuestring);
+                                result = 0;
+                            }
+                            cJSON_Delete(inner);
+                        }
+                        if (result != 0) {
+                            snprintf(report_out, report_size, "%s",
+                                     content->valuestring);
+                            result = 0;
+                        }
+                    }
+                }
+                cJSON_Delete(root);
+            }
+        } else {
+            ESP_LOGE(TAG, "Summary API error: HTTP %d", status_code);
+        }
+    } else {
+        ESP_LOGE(TAG, "Summary HTTP failed: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+    cJSON_free(post_data);
+    free(resp_buffer);
     return result;
 }
