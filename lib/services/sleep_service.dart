@@ -62,4 +62,9 @@ class SleepService extends ChangeNotifier {
     _records.add(record);
     notifyListeners();
   }
+
+  void removeRecord(String id) {
+    _records.removeWhere((r) => r.id == id);
+    notifyListeners();
+  }
 }

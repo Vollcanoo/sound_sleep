@@ -96,4 +96,16 @@ class SleepProvider extends ChangeNotifier {
       debugPrint('[SleepProvider] 上传失败: $e');
     }
   }
+
+  /// 删除一条睡眠记录（本地 + 云端）
+  Future<void> deleteRecord(String recordId) async {
+    _sleepService.removeRecord(recordId);
+    if (CloudBaseConfig.isConfigured) {
+      try {
+        await _cloudSync.deleteSleepRecord(recordId);
+      } catch (e) {
+        debugPrint('[SleepProvider] 云端删除失败: $e');
+      }
+    }
+  }
 }

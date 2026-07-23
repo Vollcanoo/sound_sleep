@@ -14,10 +14,29 @@ class DeviceService extends ChangeNotifier {
   final List<Device> _scannedDevices = [];
   bool _isScanning = false;
   bool _bleAvailable = false;
+  StreamSubscription<bool>? _connectionSub;
 
   DeviceService(this._bleDataService) {
     _initBle();
     _loadBoundDevices();
+    _connectionSub = _bleDataService.connectionStream.listen(_onBleConnectionChanged);
+  }
+
+  @override
+  void dispose() {
+    _connectionSub?.cancel();
+    super.dispose();
+  }
+
+  void _onBleConnectionChanged(bool connected) {
+    bool changed = false;
+    for (int i = 0; i < _boundDevices.length; i++) {
+      if (_boundDevices[i].isConnected != connected) {
+        _boundDevices[i] = _boundDevices[i].copyWith(isConnected: connected);
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
   }
 
   List<Device> get boundDevices => List.unmodifiable(_boundDevices);

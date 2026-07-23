@@ -103,6 +103,28 @@ class CloudSyncService {
     });
   }
 
+  /// 删除一条睡眠记录及其关联数据
+  Future<void> deleteSleepRecord(String recordId) async {
+    // recordId 格式为 "cloud_123"，提取数字部分
+    final idStr = recordId.startsWith('cloud_')
+        ? recordId.substring(6)
+        : recordId;
+    final numericId = int.tryParse(idStr);
+    if (numericId == null) return;
+
+    try {
+      await _db.delete('ai_analyses', where: 'record_id=eq.$numericId');
+      await _db.delete('snoring_events', where: 'record_id=eq.$numericId');
+      await _db.delete('posture_segments', where: 'record_id=eq.$numericId');
+      await _db.delete('pressure_segments', where: 'record_id=eq.$numericId');
+      await _db.delete('sleep_records', where: 'id=eq.$numericId');
+      debugPrint('[CloudSync] 删除成功: $recordId');
+    } catch (e) {
+      debugPrint('[CloudSync] 删除失败: $e');
+      rethrow;
+    }
+  }
+
   /// 从云端拉取睡眠记录
   Future<List<SleepRecord>> fetchRecords({int limit = 30}) async {
     final rows = await _db.query(
