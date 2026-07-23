@@ -9,6 +9,8 @@ import '../services/snore_api_service.dart';
 import '../services/sleep_record_generator.dart';
 import '../services/sleep_service.dart';
 
+enum PumpMode { llm, local }
+
 /// 管理实时睡眠监测状态
 ///
 /// 桥接 BLE 传感器数据 → 睡眠记录生成 → 存储
@@ -25,6 +27,7 @@ class RealtimeProvider extends ChangeNotifier {
   PostureReading? _currentReading;
   RealtimeSnoreReading? _currentSnoreReading;
   DateTime? _monitoringStart;
+  PumpMode _pumpMode = PumpMode.llm;
 
   // ── 累积的会话数据 ──
   final List<PostureReading> _sessionReadings = [];
@@ -60,6 +63,15 @@ class RealtimeProvider extends ChangeNotifier {
   bool get isOnBed => _currentReading?.isOnBed ?? false;
   String get currentPostureLabel => _currentReading?.posture.label ?? '未知';
   double get currentPressure => _currentReading?.totalPressure ?? 0;
+  PumpMode get pumpMode => _pumpMode;
+
+  Future<void> setPumpMode(PumpMode mode) async {
+    if (_pumpMode == mode) return;
+    _pumpMode = mode;
+    notifyListeners();
+    final command = mode == PumpMode.llm ? 'pump_mode_llm' : 'pump_mode_local';
+    await _bleService.sendCommand(command);
+  }
 
   /// 开始监测（订阅 BLE 数据流）
   Future<bool> startMonitoring() async {

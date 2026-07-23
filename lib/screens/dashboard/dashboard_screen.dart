@@ -416,6 +416,66 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ],
                                     ),
                                   ),
+                                const SizedBox(height: 12),
+                                // 气泵模式选择
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                    horizontal: 12,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade50,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: Colors.grey.shade200,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.air,
+                                        size: 16,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '气泵模式',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      ToggleButtons(
+                                        isSelected: [
+                                          realtimeProvider.pumpMode ==
+                                              PumpMode.llm,
+                                          realtimeProvider.pumpMode ==
+                                              PumpMode.local,
+                                        ],
+                                        onPressed: (index) {
+                                          realtimeProvider.setPumpMode(
+                                            index == 0
+                                                ? PumpMode.llm
+                                                : PumpMode.local,
+                                          );
+                                        },
+                                        borderRadius: BorderRadius.circular(8),
+                                        constraints: const BoxConstraints(
+                                          minHeight: 30,
+                                          minWidth: 64,
+                                        ),
+                                        textStyle: const TextStyle(
+                                          fontSize: 12,
+                                        ),
+                                        children: const [
+                                          Text('LLM'),
+                                          Text('本地规则'),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 const SizedBox(height: 16),
                                 // 停止按钮
                                 SizedBox(
