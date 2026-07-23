@@ -1,13 +1,18 @@
 #include "monitor_control.h"
 
-static volatile bool s_monitoring_enabled;
+static volatile bool s_manual_enabled = false;
 
-bool monitor_control_is_enabled(void)
+bool monitor_control_manual_enabled(void)
 {
-    return s_monitoring_enabled;
+    return s_manual_enabled;
 }
 
-void monitor_control_set_enabled(bool enabled)
+void monitor_control_set_manual(bool enabled)
 {
-    s_monitoring_enabled = enabled;
+    s_manual_enabled = enabled;
+}
+
+bool monitor_control_auto_enabled(void)
+{
+    return !s_manual_enabled;
 }

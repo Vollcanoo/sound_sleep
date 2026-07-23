@@ -179,20 +179,7 @@ void session_on_data(const snore_features_t *feat)
 
     s_last_pressure_ms = now;
 
-    if (!pressure_now && s_pressure_present) {
-        /* 压力从有→无: 立刻结束会话 */
-        s_pressure_present = false;
-        s_wake_time_ms     = now;
-        s_ended            = true;
-        ESP_LOGI(TAG, "Session ended — pressure lost, duration %.1f min",
-                 (now - s_bed_time_ms) / 60000.0f);
-        return;
-    }
-
     /* ── 压力存在时累积数据 ──────────────────────────── */
-    if (!pressure_now) {
-        return;
-    }
 
     s_sample_count++;
 

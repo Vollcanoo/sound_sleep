@@ -7,8 +7,12 @@
 extern "C" {
 #endif
 
-bool monitor_control_is_enabled(void);
-void monitor_control_set_enabled(bool enabled);
+/* 手动模式（BLE CSV 推送）：默认 false，手机 monitor_start/stop 控制 */
+bool monitor_control_manual_enabled(void);
+void monitor_control_set_manual(bool enabled);
+
+/* 自动模式（cloud_task session）：默认 true，手动模式开启时自动关闭 */
+bool monitor_control_auto_enabled(void);
 
 #ifdef __cplusplus
 }
