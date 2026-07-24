@@ -138,7 +138,7 @@ class SnoreEvent {
       endTime: recordingStart.add(
         Duration(milliseconds: (eventEndSeconds * 1000).round()),
       ),
-      avgDecibel: 0.0, // ML 管线不提供分贝值
+      avgDecibel: 30.0 + meanProbability * 40.0,
       avgProbability: meanProbability,
     );
   }

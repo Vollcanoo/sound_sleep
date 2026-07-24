@@ -140,6 +140,8 @@ class AiAnalysisService {
         '睡眠时长${hours.toStringAsFixed(1)}小时，'
         '入睡$bedTimeStr，起床$wakeTimeStr，'
         '起身${record.getUpCount}次，'
+        '${record.awayMinutes > 0 ? '离床共${record.awayMinutes}分钟，' : ''}'
+        '实际在床${record.actualSleepMinutes}分钟，'
         '$snoringInfo$snoringProbInfo，'
         '睡姿分布：$postureStr，'
         '主要睡姿：$dominantPosture$postureSegInfo，'
@@ -253,7 +255,7 @@ class AiAnalysisService {
           (record.snoringTotalMinutes / record.durationMinutes * 100);
       insights.add(
         '检测到${record.snoringEvents.length}次打鼾，'
-        '总计${record.snoringTotalMinutes}分钟'
+        '总计${record.snoringTotalMinutes.toStringAsFixed(1)}分钟'
         '（占睡眠时长${snoringPct.toStringAsFixed(1)}%）。',
       );
       if (record.snoringMaxDecibel > 55) {

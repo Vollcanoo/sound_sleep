@@ -198,7 +198,8 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                           title: '打鼾检测',
                         ),
                         const Spacer(),
-                        if (record.snoringEvents.isNotEmpty)
+                        if (record.snoringEvents.isNotEmpty &&
+                            record.snoringMaxDecibel > 0)
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,

@@ -184,6 +184,7 @@ class CloudSyncService {
     await _db.insert('ai_analyses', {
       'record_id': recordId,
       'summary': analysis.summary,
+      'insights': jsonEncode(analysis.insights),
       'suggestions': jsonEncode(analysis.suggestions),
       'created_at': analysis.analyzedAt.toIso8601String(),
     });
@@ -353,9 +354,18 @@ class CloudSyncService {
       }
     }
 
+    List<String> insights = [];
+    if (r['insights'] != null) {
+      try {
+        insights = List<String>.from(jsonDecode(r['insights'] as String));
+      } catch (_) {
+        insights = [r['insights'] as String];
+      }
+    }
+
     return AiAnalysis(
       summary: r['summary'] as String? ?? '',
-      insights: [],
+      insights: insights,
       suggestions: suggestions,
       analyzedAt: r['created_at'] != null
           ? DateTime.parse(r['created_at'] as String)

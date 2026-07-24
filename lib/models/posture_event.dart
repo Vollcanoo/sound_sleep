@@ -6,16 +6,19 @@ enum PostureType {
   rightSide,  // RIGHT_SIDE
   supine;     // SUPINE — 仰卧
 
-  /// 从 ESP32 CSV 的 posture 字段解析
+  /// 从 ESP32 CSV 或云端字符串解析
   static PostureType fromString(String s) {
     switch (s.trim().toUpperCase()) {
       case 'NO_HEAD':
+      case 'NOHEAD':
         return PostureType.noHead;
       case 'MOVING':
         return PostureType.moving;
       case 'LEFT_SIDE':
+      case 'LEFTSIDE':
         return PostureType.leftSide;
       case 'RIGHT_SIDE':
+      case 'RIGHTSIDE':
         return PostureType.rightSide;
       case 'SUPINE':
         return PostureType.supine;
