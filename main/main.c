@@ -48,6 +48,9 @@
 
 static const char *TAG = "MAIN";
 
+#define LOCAL_RULE_COOLDOWN_MS (30 * 1000)
+static int64_t s_local_rule_next_allowed_ms = 0;
+
 /* ── 全局队列与事件组 ──────────────────────────────── */
 QueueHandle_t g_feature_queue = NULL;   /* 组员写入 → cloud_task 读取 */
 static QueueHandle_t s_cmd_queue = NULL; /* cloud_task 写入 → pump_task 读取 */
@@ -109,16 +112,23 @@ static void cloud_task(void *arg)
             session_on_data(&feat);
 
             /* ── 2. 实时气泵控制 ── */
+            const int64_t local_now_ms = esp_timer_get_time() / 1000;
             memset(&cmd, 0, sizeof(cmd));
-            if (monitor_control_get_pump_mode() == PUMP_MODE_LOCAL ||
-                !llm_periodic_override_active()) {
+            if ((monitor_control_get_pump_mode() == PUMP_MODE_LOCAL ||
+                 !llm_periodic_override_active()) &&
+                local_now_ms >= s_local_rule_next_allowed_ms) {
                 pump_evaluate_local_rule(&feat, &cmd);
 
                 if (strcmp(cmd.action, "hold") != 0) {
                     ESP_LOGI(TAG, "🎮 气泵指令: %s %s (强度%d%%, %ds)",
                              cmd.action, cmd.zone, cmd.intensity, cmd.duration_sec);
-                    if (xQueueSend(s_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) != pdTRUE) {
+                    const int64_t now_ms = esp_timer_get_time() / 1000;
+                    if (now_ms < s_local_rule_next_allowed_ms) {
+                        ESP_LOGI(TAG, "Local rule command suppressed during cooldown");
+                    } else if (xQueueSend(s_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) != pdTRUE) {
                         ESP_LOGW(TAG, "气泵指令队列已满，丢弃本次指令");
+                    } else {
+                        s_local_rule_next_allowed_ms = now_ms + LOCAL_RULE_COOLDOWN_MS;
                     }
                 }
             }

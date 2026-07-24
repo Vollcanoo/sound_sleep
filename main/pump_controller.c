@@ -155,11 +155,10 @@ static void inflate_side(
 
 
 
-    int actual_ms =
-        duration_sec * intensity * 10;
+    int actual_ms = duration_sec * 1000;
 
 
-    if(actual_ms < 1000)
+    if (actual_ms < 1000)
         actual_ms = 1000;
 
 
@@ -350,13 +349,10 @@ void pump_execute_command(
 
 
 
-            int actual_ms =
-                cmd->duration_sec *
-                cmd->intensity *
-                10;
+            int actual_ms = cmd->duration_sec * 1000;
 
 
-            if(actual_ms < 1000)
+            if (actual_ms < 1000)
                 actual_ms = 1000;
 
 

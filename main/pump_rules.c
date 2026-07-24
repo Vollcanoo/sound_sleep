@@ -43,7 +43,8 @@ static void cmd_inflate(pump_command_t *cmd, const char *zone, int intensity)
     cmd->zone[sizeof(cmd->zone) - 1] = '\0';
     cmd->intensity = intensity;
     /* duration_sec 按 intensity 比例在 5-20 秒区间调节 */
-    cmd->duration_sec = (int)(5.0f + (intensity / 100.0f) * 15.0f);
+    /* Local-rule demo commands always run the pump for six seconds. */
+    cmd->duration_sec = 6;
 }
 
 /* ────────────────────────────────────────────────────────
