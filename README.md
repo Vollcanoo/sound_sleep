@@ -285,6 +285,8 @@ is an acceptable workaround.
    A disconnect `reason=201` means the access point was not found, commonly
    because a phone hotspot is 5 GHz-only, hidden, out of range, or using an
    unsupported channel.
+   The board retains credentials in NVS but does **not** auto-connect on boot;
+   send the Wi-Fi configuration command again after a reboot to connect.
 5. After Wi-Fi connects, BLE deliberately remains enabled. This is needed for
    the monitor controls and to allow future rebinding.
 6. On the dashboard, tap **Start Monitoring**. The app writes `monitor_start`.
