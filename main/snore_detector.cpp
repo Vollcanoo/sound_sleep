@@ -12,7 +12,6 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "log_mel.hpp"
-#include "monitor_control.h"
 #include "snore_detector.h"
 
 extern const uint8_t snoring_esp32_int8_espdl[]
@@ -76,11 +75,10 @@ void snore_task(void *arg)
     }
 
     while (true) {
-        if (!monitor_control_manual_enabled()) {
-            vTaskDelay(pdMS_TO_TICKS(200));
-            continue;
-        }
-
+        // Run inference in both automatic and app-controlled monitoring modes.
+        // The feature aggregator resets its snore counters when a new
+        // pressure-present session begins, so windows collected before the
+        // user lies down do not contribute to that session's summary.
         if (microphone.capture(pcm, snore::kCaptureSamples) == ESP_OK &&
             extractor.extract(pcm, snore::kCaptureSamples, log_mel) == ESP_OK) {
             snore_reading_t reading = {
