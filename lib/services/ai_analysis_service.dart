@@ -100,8 +100,8 @@ class AiAnalysisService {
     final snoringInfo = record.snoringEvents.isEmpty
         ? '无打鼾'
         : '打鼾${record.snoringEvents.length}次，'
-            '总计${record.snoringTotalMinutes}分钟，'
-            '最高${record.snoringMaxDecibel.toStringAsFixed(0)}dB';
+            '总计${record.snoringTotalMinutes.toStringAsFixed(1)}分钟'
+            '${record.snoringMaxDecibel > 0 ? '，估计最高${record.snoringMaxDecibel.toStringAsFixed(0)}dB' : ''}';
 
     // 打鼾概率信息（如有）
     String snoringProbInfo = '';

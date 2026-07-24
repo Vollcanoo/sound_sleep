@@ -177,6 +177,16 @@ class RealtimeProvider extends ChangeNotifier {
     return record;
   }
 
+  /// 从概率估算分贝值（仅在 ESP32 未发送 rms_db 时使用）
+  ///
+  /// 映射区间: probability 0.5→40dB, 1.0→75dB（线性插值）
+  static double _estimateDecibel(double probability) {
+    const minDb = 40.0;
+    const maxDb = 75.0;
+    final clamped = probability.clamp(0.5, 1.0);
+    return minDb + (clamped - 0.5) / 0.5 * (maxDb - minDb);
+  }
+
   List<SnoringEvent> _buildRealtimeSnoringEvents(
     List<RealtimeSnoreReading> readings,
   ) {
@@ -190,6 +200,7 @@ class RealtimeProvider extends ChangeNotifier {
       Duration(milliseconds: (detected.first.windowSeconds * 1000).round()),
     );
     var probabilitySum = detected.first.probability;
+    var dbSum = detected.first.rmsDb;
     var count = 1;
 
     for (final reading in detected.skip(1)) {
@@ -200,30 +211,36 @@ class RealtimeProvider extends ChangeNotifier {
       if (!reading.timestamp.isAfter(end.add(gapTolerance))) {
         if (readingEnd.isAfter(end)) end = readingEnd;
         probabilitySum += reading.probability;
+        dbSum += reading.rmsDb;
         count++;
         continue;
       }
 
+      final avgProb = probabilitySum / count;
+      final avgDb = dbSum / count;
       events.add(
         SnoringEvent(
           startTime: start,
           endTime: end,
-          avgDecibel: 0.0,
-          avgProbability: probabilitySum / count,
+          avgDecibel: avgDb > 0 ? avgDb : _estimateDecibel(avgProb),
+          avgProbability: avgProb,
         ),
       );
       start = reading.timestamp;
       end = readingEnd;
       probabilitySum = reading.probability;
+      dbSum = reading.rmsDb;
       count = 1;
     }
 
+    final avgProb = probabilitySum / count;
+    final avgDb = dbSum / count;
     events.add(
       SnoringEvent(
         startTime: start,
         endTime: end,
-        avgDecibel: 0.0,
-        avgProbability: probabilitySum / count,
+        avgDecibel: avgDb > 0 ? avgDb : _estimateDecibel(avgProb),
+        avgProbability: avgProb,
       ),
     );
     return events;
