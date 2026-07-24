@@ -67,10 +67,15 @@ class RealtimeProvider extends ChangeNotifier {
 
   Future<void> setPumpMode(PumpMode mode) async {
     if (_pumpMode == mode) return;
+    final oldMode = _pumpMode;
     _pumpMode = mode;
     notifyListeners();
     final command = mode == PumpMode.llm ? 'pump_mode_llm' : 'pump_mode_local';
-    await _bleService.sendCommand(command);
+    final success = await _bleService.sendCommand(command);
+    if (!success) {
+      _pumpMode = oldMode;
+      notifyListeners();
+    }
   }
 
   /// 开始监测（订阅 BLE 数据流）
@@ -80,6 +85,10 @@ class RealtimeProvider extends ChangeNotifier {
     if (!await _bleService.sendCommand('monitor_start')) {
       return false;
     }
+
+    // 同步当前 pump mode 到 ESP32，防止重启后状态不一致
+    final modeCmd = _pumpMode == PumpMode.llm ? 'pump_mode_llm' : 'pump_mode_local';
+    await _bleService.sendCommand(modeCmd);
 
     _beginMonitoringSession();
     return true;
