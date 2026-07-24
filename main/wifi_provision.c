@@ -39,6 +39,7 @@ static void reply_ble(const char *status, const char *msg)
     char *json_str = cJSON_PrintUnformatted(root);
     if (json_str) {
         ble_uart_send(json_str, strlen(json_str));
+        ble_uart_send("\n", 1);
         free(json_str);
     }
     cJSON_Delete(root);

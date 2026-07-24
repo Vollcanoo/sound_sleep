@@ -34,6 +34,13 @@
 
 static volatile bool s_wifi_connecting = false;
 
+/* All device-to-phone JSON messages are newline-delimited. */
+static void send_json_line(const char *json)
+{
+    ble_uart_send(json, strlen(json));
+    ble_uart_send("\n", 1);
+}
+
 static void wifi_connect_task(void *arg)
 {
     char ssid[33] = {0};
@@ -43,11 +50,11 @@ static void wifi_connect_task(void *arg)
         esp_err_t ret = wifi_manager_connect(ssid, pass);
         if (ret == ESP_OK) {
             const char *ok = "{\"status\":\"ok\",\"msg\":\"wifi_connected\"}";
-            ble_uart_send(ok, strlen(ok));
+            send_json_line(ok);
             ESP_LOGI("BLE_PROV", "WiFi connected via async provisioning");
         } else {
             const char *err = "{\"status\":\"error\",\"msg\":\"connect_failed\"}";
-            ble_uart_send(err, strlen(err));
+            send_json_line(err);
             wifi_provision_clear_credentials();
             ESP_LOGW("BLE_PROV", "Async WiFi connect failed");
         }
@@ -102,29 +109,34 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
             if (strcmp(buf, "monitor_start") == 0) {
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"monitor_started\"}";
                 monitor_control_set_manual(true);
-                ble_uart_send(reply, strlen(reply));
+                send_json_line(reply);
                 ESP_LOGI(TAG, "Manual monitoring enabled by BLE");
             } else if (strcmp(buf, "monitor_stop") == 0) {
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"monitor_stopped\"}";
                 monitor_control_set_manual(false);
                 llm_periodic_reset();
-                ble_uart_send(reply, strlen(reply));
+                send_json_line(reply);
                 ESP_LOGI(TAG, "Manual monitoring disabled by BLE");
             } else if (strcmp(buf, "wifi_clear") == 0) {
                 wifi_provision_clear_credentials();
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"wifi_cleared\"}";
-                ble_uart_send(reply, strlen(reply));
+                send_json_line(reply);
                 ESP_LOGI(TAG, "WiFi credentials cleared by BLE");
             } else if (strcmp(buf, "pump_mode_llm") == 0) {
                 monitor_control_set_pump_mode(PUMP_MODE_LLM);
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"pump_mode_llm\"}";
-                ble_uart_send(reply, strlen(reply));
+                send_json_line(reply);
                 ESP_LOGI(TAG, "Pump mode set to LLM by BLE");
             } else if (strcmp(buf, "pump_mode_local") == 0) {
                 monitor_control_set_pump_mode(PUMP_MODE_LOCAL);
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"pump_mode_local\"}";
-                ble_uart_send(reply, strlen(reply));
+                send_json_line(reply);
                 ESP_LOGI(TAG, "Pump mode set to LOCAL by BLE");
+            } else if (strcmp(buf, "device_status") == 0) {
+                const char *reply = wifi_manager_is_connected()
+                    ? "{\"type\":\"device_status\",\"wifi_connected\":true}"
+                    : "{\"type\":\"device_status\",\"wifi_connected\":false}";
+                send_json_line(reply);
             }
             /* JSON 数据 → WiFi 配网处理（异步连接，不阻塞 BLE 回调） */
             else if (buf[0] == '{') {
