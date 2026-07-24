@@ -5,8 +5,8 @@
  *
  * GPIO7/8:
  *   左/右气泵 MOS驱动模块
- *   LOW  = 开泵
- *   HIGH = 关泵
+ *   HIGH = 开泵
+ *   LOW  = 关泵
  *
  * GPIO9/10:
  *   左/右泄气阀 MOS驱动模块
@@ -41,8 +41,8 @@ static const char *TAG = "PUMP";
  */
 
 
-#define PUMP_ON_LEVEL       0
-#define PUMP_OFF_LEVEL      1
+#define PUMP_ON_LEVEL       1
+#define PUMP_OFF_LEVEL      0
 
 
 #define VALVE_OPEN_LEVEL    1
@@ -98,7 +98,7 @@ void pump_controller_init(void)
 
 
     ESP_LOGI(TAG,
-             "Pump: GPIO%d GPIO%d (LOW=ON)",
+             "Pump: GPIO%d GPIO%d (HIGH=ON)",
              GPIO_PUMP_LEFT,
              GPIO_PUMP_RIGHT);
 

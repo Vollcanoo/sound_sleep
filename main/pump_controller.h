@@ -12,8 +12,8 @@
  *   GPIO7/8  = 左/右气泵
  *                (MOS驱动模块)
  *
- *                LOW  = 开启气泵
- *                HIGH = 关闭气泵
+ *                HIGH = 开启气泵
+ *                LOW  = 关闭气泵
  *
  *
  *   GPIO9/10 = 左/右泄气阀
@@ -146,8 +146,8 @@ typedef struct {
  */
 
 
-#define PUMP_ON_LEVEL          0
-#define PUMP_OFF_LEVEL         1
+#define PUMP_ON_LEVEL          1
+#define PUMP_OFF_LEVEL         0
 
 
 #define VALVE_OPEN_LEVEL       1
