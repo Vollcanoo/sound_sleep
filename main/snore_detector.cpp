@@ -81,9 +81,21 @@ void snore_task(void *arg)
         // user lies down do not contribute to that session's summary.
         if (microphone.capture(pcm, snore::kCaptureSamples) == ESP_OK &&
             extractor.extract(pcm, snore::kCaptureSamples, log_mel) == ESP_OK) {
+
+            // Compute RMS from PCM (normalized [-1,1]) → dB FS
+            // INMP441 sensitivity: -26 dBFS = 94 dB SPL → offset ≈ 120
+            float sum_sq = 0.0F;
+            for (int i = 0; i < snore::kCaptureSamples; ++i) {
+                sum_sq += pcm[i] * pcm[i];
+            }
+            float rms = sqrtf(sum_sq / snore::kCaptureSamples);
+            float rms_dbfs = (rms > 1e-10F) ? 20.0F * log10f(rms) : -100.0F;
+            float rms_db_spl = rms_dbfs + 120.0F; // approximate dB SPL
+
             snore_reading_t reading = {
                 .probability = model.probability(log_mel),
                 .window_seconds = static_cast<float>(snore::kCaptureSamples) / snore::kSampleRate,
+                .rms_db = rms_db_spl,
                 .detected = false,
             };
             reading.detected = reading.probability >= 0.5F;
@@ -92,16 +104,19 @@ void snore_task(void *arg)
                 char message[128];
                 const int length = snprintf(
                     message, sizeof(message),
-                    "{\"type\":\"snore\",\"probability\":%.4f,\"detected\":%s,\"window_seconds\":%.3f}\n",
+                    "{\"type\":\"snore\",\"probability\":%.4f,\"detected\":%s,\"window_seconds\":%.3f,\"rms_db\":%.1f}\n",
                     reading.probability,
                     reading.detected ? "true" : "false",
-                    reading.window_seconds);
+                    reading.window_seconds,
+                    reading.rms_db);
                 if (length > 0 && static_cast<size_t>(length) < sizeof(message)) {
                     ble_uart_send(message, static_cast<size_t>(length));
                 }
             }
-            ESP_LOGI(kTag, "probability=%.3f detected=%s", reading.probability,
-                     reading.detected ? "yes" : "no");
+            ESP_LOGI(kTag, "probability=%.3f detected=%s rms_db=%.1f",
+                     reading.probability,
+                     reading.detected ? "yes" : "no",
+                     reading.rms_db);
         }
     }
 }

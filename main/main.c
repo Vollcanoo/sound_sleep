@@ -223,6 +223,7 @@ static void feature_aggregator_task(void *arg)
     int positive_window_count = 0;
     float probability_sum = 0.0f;
     float max_probability = 0.0f;
+    float max_rms_db = 0.0f;
 
     while (true) {
         if (!posture_sensor_receive(&posture, portMAX_DELAY)) {
@@ -238,6 +239,9 @@ static void feature_aggregator_task(void *arg)
             if (reading.probability > max_probability) {
                 max_probability = reading.probability;
             }
+            if (reading.rms_db > max_rms_db) {
+                max_rms_db = reading.rms_db;
+            }
             if (reading.detected) {
                 positive_window_count++;
             }
@@ -249,6 +253,7 @@ static void feature_aggregator_task(void *arg)
             positive_window_count = 0;
             probability_sum = 0.0f;
             max_probability = 0.0f;
+            max_rms_db = 0.0f;
             has_snore_window = false;
         }
         was_on_pillow = on_pillow;
@@ -274,6 +279,8 @@ static void feature_aggregator_task(void *arg)
             .snore_detected = has_snore_window && latest_snore.detected,
             .snore_minutes_per_hour = elapsed_hours > 0.0f
                 ? positive_duration_minutes / elapsed_hours : 0.0f,
+            .latest_rms_db = latest_snore.rms_db,
+            .max_rms_db = max_rms_db,
             .posture = posture,
             .timestamp_ms = esp_timer_get_time() / 1000,
         };

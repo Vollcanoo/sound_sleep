@@ -8,6 +8,7 @@
 typedef struct {
     float probability;
     float window_seconds;
+    float rms_db;       /* RMS amplitude in dB (ref: full-scale), ~30-80 dB SPL range */
     bool detected;
 } snore_reading_t;
 

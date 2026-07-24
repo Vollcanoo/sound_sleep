@@ -44,6 +44,8 @@ static double   s_sum_snore_prob;
 static int      s_sample_count;
 /** 鼾声事件计数（snore_detected == true 的采样数） */
 static int      s_snore_event_count;
+/** 最大 RMS 分贝值 */
+static float    s_max_rms_db;
 
 /* ── 姿态累积 ────────────────────────────────────────── */
 
@@ -212,6 +214,9 @@ void session_on_data(const snore_features_t *feat)
         s_snore_event_count++;
     }
     s_total_snore_minutes = feat->positive_duration_minutes;
+    if (feat->max_rms_db > s_max_rms_db) {
+        s_max_rms_db = feat->max_rms_db;
+    }
 }
 
 bool session_is_ended(void)
@@ -250,6 +255,7 @@ sleep_session_summary_t session_get_summary(void)
         ? (float)(s_sum_snore_prob / s_sample_count)
         : 0.0f;
     summary.snore_event_count = s_snore_event_count;
+    summary.max_rms_db = s_max_rms_db;
 
     float duration_hours = summary.duration_minutes / 60.0f;
     summary.snore_minutes_per_hour = (duration_hours > 0.0f)
@@ -296,6 +302,7 @@ void session_reset(void)
     s_sum_snore_prob      = 0.0;
     s_sample_count        = 0;
     s_snore_event_count   = 0;
+    s_max_rms_db          = 0.0f;
 
     memset(s_posture_seconds, 0, sizeof(s_posture_seconds));
     s_posture_change_count = 0;

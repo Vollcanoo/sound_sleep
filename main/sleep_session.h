@@ -40,6 +40,7 @@ typedef struct {
     float    mean_snore_probability;/* 平均鼾声概率 */
     int      snore_event_count;     /* 鼾声事件次数 */
     float    snore_minutes_per_hour;/* 每小时鼾声分钟数 */
+    float    max_rms_db;            /* 最大 RMS 分贝值 (dB SPL) */
 
     /* 姿态分布 */
     int      posture_seconds[POSTURE_COUNT]; /* Seconds per supported posture */

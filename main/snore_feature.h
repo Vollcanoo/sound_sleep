@@ -71,6 +71,8 @@ typedef struct {
     float positive_duration_minutes;  /* 正窗累计时长 (分钟) */
     bool  snore_detected;             /* 是否至少存在一个正窗 */
     float snore_minutes_per_hour;     /* 平均每小时鼾声分钟数 */
+    float latest_rms_db;              /* 最新窗口的 RMS 分贝值 (dB SPL) */
+    float max_rms_db;                 /* 会话内最大 RMS 分贝值 */
 
     /* ── 睡姿数据 (来自 Posture_Recognition) ──── */
     posture_data_t posture;           /* 当前睡姿 */

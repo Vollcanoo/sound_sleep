@@ -499,8 +499,17 @@ static int upload_snoring_event(int record_id,
     format_iso_time(summary->wake_time_ms, summary->bed_time_ms,
                     end_str, sizeof(end_str));
 
-    /* 平均分贝用一个估算值 (ESP32 INMP441 无校准分贝) */
-    float avg_decibel = summary->mean_snore_probability > 0.5f ? 55.0f : 40.0f;
+    /* 使用真实 RMS 分贝值（来自 INMP441 麦克风）
+     * 如果 max_rms_db 为 0（旧固件未采集），fallback 到概率估算 */
+    float avg_decibel;
+    if (summary->max_rms_db > 0.0f) {
+        avg_decibel = summary->max_rms_db;
+    } else {
+        float clamped_prob = summary->mean_snore_probability;
+        if (clamped_prob < 0.5f) clamped_prob = 0.5f;
+        if (clamped_prob > 1.0f) clamped_prob = 1.0f;
+        avg_decibel = 40.0f + (clamped_prob - 0.5f) / 0.5f * 35.0f;
+    }
 
     cJSON *body = cJSON_CreateObject();
     if (!body) return -3;
@@ -526,7 +535,7 @@ static int upload_snoring_event(int record_id,
 }
 
 /* ────────────────────────────────────────────────────
- *  Step 4: 插入 posture_segments (主要姿态)
+ *  Step 4: 插入 posture_segments (所有有效姿态)
  * ──────────────────────────────────────────────────── */
 
 /**
@@ -547,49 +556,56 @@ static const char *posture_to_cloud_string(posture_t p)
 static int upload_posture_segment(int record_id,
                                   const sleep_session_summary_t *summary)
 {
-    posture_t dominant = summary->dominant_posture;
-    int dominant_seconds = summary->posture_seconds[dominant];
-
-    if (dominant_seconds <= 0) {
+    int total_seconds = summary->duration_minutes * 60;
+    if (total_seconds <= 0) {
         ESP_LOGI(TAG, "无有效姿态数据，跳过 posture_segments");
         return 0;
     }
 
-    /* 主要姿态: 整段睡眠期间 */
-    char start_str[32], end_str[32];
-    format_iso_time(summary->bed_time_ms, summary->bed_time_ms,
-                    start_str, sizeof(start_str));
-    format_iso_time(summary->wake_time_ms, summary->bed_time_ms,
-                    end_str, sizeof(end_str));
+    int overall_ret = 0;
+    int64_t offset_ms = 0;
 
-    /* 置信度: 主要姿态占总时间的比例 */
-    int total_seconds = summary->duration_minutes * 60;
-    float avg_confidence = (total_seconds > 0)
-        ? (float)dominant_seconds / (float)total_seconds
-        : 0.5f;
-    if (avg_confidence > 1.0f) avg_confidence = 1.0f;
+    for (int i = 0; i < POSTURE_COUNT; i++) {
+        int secs = summary->posture_seconds[i];
+        if (secs <= 0) continue;
 
-    cJSON *body = cJSON_CreateObject();
-    if (!body) return -3;
+        char start_str[32], end_str[32];
+        format_iso_time(summary->bed_time_ms + offset_ms,
+                        summary->bed_time_ms,
+                        start_str, sizeof(start_str));
+        format_iso_time(summary->bed_time_ms + offset_ms + (int64_t)secs * 1000,
+                        summary->bed_time_ms,
+                        end_str, sizeof(end_str));
+        offset_ms += (int64_t)secs * 1000;
 
-    cJSON_AddNumberToObject(body, "record_id",       record_id);
-    cJSON_AddStringToObject(body, "start_time",      start_str);
-    cJSON_AddStringToObject(body, "end_time",        end_str);
-    cJSON_AddStringToObject(body, "posture",         posture_to_cloud_string(dominant));
-    cJSON_AddNumberToObject(body, "avg_confidence",  avg_confidence);
+        float confidence = (float)secs / (float)total_seconds;
+        if (confidence > 1.0f) confidence = 1.0f;
 
-    char *json_str = cJSON_PrintUnformatted(body);
-    cJSON_Delete(body);
-    if (!json_str) return -3;
+        cJSON *body = cJSON_CreateObject();
+        if (!body) { overall_ret = -3; continue; }
 
-    ESP_LOGI(TAG, "posture_segments JSON: %s", json_str);
-    int ret = cloudbase_post("posture_segments", json_str, NULL, 0);
-    cJSON_free(json_str);
+        cJSON_AddNumberToObject(body, "record_id",       record_id);
+        cJSON_AddStringToObject(body, "start_time",      start_str);
+        cJSON_AddStringToObject(body, "end_time",        end_str);
+        cJSON_AddStringToObject(body, "posture",
+                                posture_to_cloud_string((posture_t)i));
+        cJSON_AddNumberToObject(body, "avg_confidence",  confidence);
 
-    if (ret != 0) {
-        ESP_LOGE(TAG, "posture_segments 插入失败");
+        char *json_str = cJSON_PrintUnformatted(body);
+        cJSON_Delete(body);
+        if (!json_str) { overall_ret = -3; continue; }
+
+        ESP_LOGI(TAG, "posture_segments[%d] JSON: %s", i, json_str);
+        int ret = cloudbase_post("posture_segments", json_str, NULL, 0);
+        cJSON_free(json_str);
+
+        if (ret != 0) {
+            ESP_LOGE(TAG, "posture_segments[%d] 插入失败", i);
+            if (overall_ret == 0) overall_ret = ret;
+        }
     }
-    return ret;
+
+    return overall_ret;
 }
 
 /* ────────────────────────────────────────────────────
