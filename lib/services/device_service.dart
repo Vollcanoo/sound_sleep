@@ -14,25 +14,51 @@ class DeviceService extends ChangeNotifier {
   final List<Device> _scannedDevices = [];
   bool _isScanning = false;
   bool _bleAvailable = false;
+  String? _connectedMacAddress;
   StreamSubscription<bool>? _connectionSub;
 
   DeviceService(this._bleDataService) {
     _initBle();
     _loadBoundDevices();
     _connectionSub = _bleDataService.connectionStream.listen(_onBleConnectionChanged);
+    _bleDataService.addListener(_onBleDataChanged);
   }
 
   @override
   void dispose() {
     _connectionSub?.cancel();
+    _bleDataService.removeListener(_onBleDataChanged);
     super.dispose();
   }
 
   void _onBleConnectionChanged(bool connected) {
     bool changed = false;
     for (int i = 0; i < _boundDevices.length; i++) {
-      if (_boundDevices[i].isConnected != connected) {
-        _boundDevices[i] = _boundDevices[i].copyWith(isConnected: connected);
+      final isActive = _connectedMacAddress == null ||
+          _boundDevices[i].macAddress == _connectedMacAddress;
+      if (isActive && _boundDevices[i].isConnected != connected) {
+        _boundDevices[i] = _boundDevices[i].copyWith(
+          isConnected: connected,
+          isWifiConnected: connected && _bleDataService.isWifiConnected,
+        );
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
+  void _onBleDataChanged() {
+    if (!_bleDataService.isConnected) return;
+    bool changed = false;
+    for (int i = 0; i < _boundDevices.length; i++) {
+      final isActive = _connectedMacAddress == null ||
+          _boundDevices[i].macAddress == _connectedMacAddress;
+      if (isActive &&
+          _boundDevices[i].isWifiConnected != _bleDataService.isWifiConnected) {
+        _boundDevices[i] = _boundDevices[i].copyWith(
+          isConnected: true,
+          isWifiConnected: _bleDataService.isWifiConnected,
+        );
         changed = true;
       }
     }
@@ -162,6 +188,7 @@ class DeviceService extends ChangeNotifier {
   }
 
   Future<Device> bindDevice(Device device) async {
+    _connectedMacAddress = device.macAddress;
     if (device.bleDevice != null && !_bleDataService.isConnected) {
       try {
         await _bleDataService.connectAndSubscribe(device.bleDevice!);
@@ -171,7 +198,11 @@ class DeviceService extends ChangeNotifier {
       }
     }
 
-    final bound = device.copyWith(isConnected: true, boundAt: DateTime.now());
+    final bound = device.copyWith(
+      isConnected: true,
+      isWifiConnected: _bleDataService.isWifiConnected,
+      boundAt: DateTime.now(),
+    );
     _scannedDevices.removeWhere((d) => d.id == device.id);
     _boundDevices.add(bound);
     notifyListeners();
@@ -184,6 +215,7 @@ class DeviceService extends ChangeNotifier {
     if (bleDevice == null) {
       throw StateError('Selected device has no BLE handle');
     }
+    _connectedMacAddress = device.macAddress;
     if (_bleDataService.isConnected) return;
 
     await _bleDataService.connectAndSubscribe(bleDevice);
@@ -235,8 +267,13 @@ class DeviceService extends ChangeNotifier {
 
       if (found == null) return false;
 
+      _connectedMacAddress = device.macAddress;
       await _bleDataService.connectAndSubscribe(found!);
-      _boundDevices[idx] = device.copyWith(isConnected: true, bleDevice: found);
+      _boundDevices[idx] = device.copyWith(
+        isConnected: true,
+        isWifiConnected: _bleDataService.isWifiConnected,
+        bleDevice: found,
+      );
       notifyListeners();
       return true;
     } catch (e) {

@@ -66,6 +66,17 @@ class DeviceTile extends StatelessWidget {
                         color: Colors.grey.shade600,
                       ),
                     ),
+                    if (isBound) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _connectionLabel(device),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _connectionColor(device),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -126,5 +137,17 @@ class DeviceTile extends StatelessWidget {
     if (level > 40) return Icons.battery_4_bar;
     if (level > 20) return Icons.battery_2_bar;
     return Icons.battery_alert;
+  }
+
+  String _connectionLabel(Device device) {
+    if (!device.isConnected) return 'Bluetooth disconnected';
+    return device.isWifiConnected
+        ? 'Bluetooth + Wi-Fi connected'
+        : 'Bluetooth connected';
+  }
+
+  Color _connectionColor(Device device) {
+    if (!device.isConnected) return Colors.grey.shade600;
+    return device.isWifiConnected ? Colors.green : AppTheme.primaryBlue;
   }
 }

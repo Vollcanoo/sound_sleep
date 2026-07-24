@@ -29,6 +29,7 @@ class BleDataService extends ChangeNotifier {
   PostureReading? _latestReading;
   RealtimeSnoreReading? _latestSnoreReading;
   bool _isConnected = false;
+  bool _isWifiConnected = false;
   bool _isReceivingData = false;
   DateTime? _sessionStart;
 
@@ -47,6 +48,7 @@ class BleDataService extends ChangeNotifier {
   PostureReading? get latestReading => _latestReading;
   RealtimeSnoreReading? get latestSnoreReading => _latestSnoreReading;
   bool get isConnected => _isConnected;
+  bool get isWifiConnected => _isWifiConnected;
   bool get isReceivingData => _isReceivingData;
   DateTime? get sessionStart => _sessionStart;
   List<PostureReading> get readings => List.unmodifiable(_readings);
@@ -76,6 +78,7 @@ class BleDataService extends ChangeNotifier {
           // 连接断开 → 尝试自动重连
           debugPrint('BLE 连接断开，尝试重连...');
           _isConnected = false;
+          _isWifiConnected = false;
           _isReceivingData = false;
           _connectionController.add(false);
           notifyListeners();
@@ -112,10 +115,13 @@ class BleDataService extends ChangeNotifier {
       _connectionController.add(true);
       notifyListeners();
 
+      await sendCommand('device_status');
+
       debugPrint('BLE UART 连接成功: ${device.platformName}');
     } catch (e) {
       debugPrint('BLE 连接失败: $e');
       _isConnected = false;
+      _isWifiConnected = false;
       _connectionController.add(false);
       notifyListeners();
       rethrow;
@@ -177,9 +183,30 @@ class BleDataService extends ChangeNotifier {
   void _processJsonLine(String line) {
     try {
       final decoded = jsonDecode(line);
-      if (decoded is! Map<String, dynamic> || decoded['type'] != 'snore') {
+      if (decoded is! Map<String, dynamic>) {
         return;
       }
+
+      if (decoded['type'] == 'device_status') {
+        _isWifiConnected = decoded['wifi_connected'] == true;
+        notifyListeners();
+        return;
+      }
+
+      if (decoded['status'] == 'ok' && decoded['msg'] == 'wifi_connected') {
+        _isWifiConnected = true;
+        notifyListeners();
+        return;
+      }
+
+      if ((decoded['status'] == 'ok' && decoded['msg'] == 'wifi_cleared') ||
+          (decoded['status'] == 'error' && decoded['msg'] == 'connect_failed')) {
+        _isWifiConnected = false;
+        notifyListeners();
+        return;
+      }
+
+      if (decoded['type'] != 'snore') return;
 
       final reading = RealtimeSnoreReading.fromJson(decoded);
       _latestSnoreReading = reading;
@@ -249,6 +276,7 @@ class BleDataService extends ChangeNotifier {
     _buffer = '';
     _latestSnoreReading = null;
     _isConnected = false;
+    _isWifiConnected = false;
     _isReceivingData = false;
     _connectionController.add(false);
     notifyListeners();
