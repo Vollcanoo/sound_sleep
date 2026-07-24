@@ -27,12 +27,12 @@ class WifiProvisionService extends ChangeNotifier {
 
   Future<bool> sendWifiCredentials(String ssid, String password) async {
     if (!_bleDataService.isConnected) {
-      _setState(WifiProvisionState.failed, 'Device is not connected');
-      _errorDetail = 'Connect to the BLE device first.';
+      _setState(WifiProvisionState.failed, '设备未连接');
+      _errorDetail = '请先连接蓝牙设备。';
       return false;
     }
 
-    _setState(WifiProvisionState.sending, 'Sending Wi-Fi configuration...');
+    _setState(WifiProvisionState.sending, '正在发送 Wi-Fi 配置...');
     final completer = Completer<bool>();
     var replyBuffer = '';
 
@@ -59,7 +59,7 @@ class WifiProvisionService extends ChangeNotifier {
             if (status == 'ok' && msg == 'credentials_saved') {
               _setState(
                 WifiProvisionState.waiting,
-                'Credentials saved; connecting to Wi-Fi...',
+                '凭据已保存，正在连接 Wi-Fi...',
               );
             } else if (status == 'ok' && msg == 'wifi_connected') {
               if (!completer.isCompleted) completer.complete(true);
@@ -77,12 +77,12 @@ class WifiProvisionService extends ChangeNotifier {
         utf8.encode(jsonEncode({'cmd': 'wifi_config', 'ssid': ssid, 'pass': password})),
       );
       if (!sent) {
-        _setState(WifiProvisionState.failed, 'Failed to send Wi-Fi configuration');
-        _errorDetail = 'BLE characteristic write failed.';
+        _setState(WifiProvisionState.failed, '发送 Wi-Fi 配置失败');
+        _errorDetail = 'BLE 特征写入失败。';
         return false;
       }
 
-      _setState(WifiProvisionState.waiting, 'Waiting for the device to connect to Wi-Fi...');
+      _setState(WifiProvisionState.waiting, '等待设备连接 Wi-Fi...');
       final success = await completer.future.timeout(
         const Duration(seconds: 30),
         onTimeout: () {
@@ -92,14 +92,14 @@ class WifiProvisionService extends ChangeNotifier {
       );
 
       if (success) {
-        _setState(WifiProvisionState.success, 'Wi-Fi connected successfully');
+        _setState(WifiProvisionState.success, '配网成功！设备已连接 Wi-Fi');
         return true;
       }
 
-      _setState(WifiProvisionState.failed, 'The device could not connect to Wi-Fi');
+      _setState(WifiProvisionState.failed, '设备无法连接 Wi-Fi');
       return false;
     } catch (e) {
-      _setState(WifiProvisionState.failed, 'Failed to configure Wi-Fi');
+      _setState(WifiProvisionState.failed, '配置 Wi-Fi 失败');
       _errorDetail = e.toString();
       debugPrint('Wi-Fi provisioning error: $e');
       return false;

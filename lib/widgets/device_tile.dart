@@ -140,10 +140,10 @@ class DeviceTile extends StatelessWidget {
   }
 
   String _connectionLabel(Device device) {
-    if (!device.isConnected) return 'Bluetooth disconnected';
+    if (!device.isConnected) return '蓝牙未连接';
     return device.isWifiConnected
-        ? 'Bluetooth + Wi-Fi connected'
-        : 'Bluetooth connected';
+        ? '蓝牙 + Wi-Fi 已连接'
+        : '蓝牙已连接';
   }
 
   Color _connectionColor(Device device) {
