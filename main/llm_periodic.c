@@ -20,7 +20,7 @@ static const char *TAG = "LLM_PERIODIC";
 
 #define LLM_WINDOW_FRAMES    300          /* 5min * 60s * 1Hz */
 #define LLM_OVERRIDE_MS      (5*60*1000)  /* 5 分钟有效期 */
-#define LLM_TASK_STACK       8192
+#define LLM_TASK_STACK       16384
 
 /* ── 窗口统计（running stats）──────────────────────── */
 typedef struct {
