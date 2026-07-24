@@ -2,19 +2,11 @@ dependencies:
   espressif/esp-dl:
     version: "^3.3.1"
     override_path: "../Snore_Det/third_party/esp-dl/esp-dl"
-    rules:
-      - if: "$CONFIG{PUMP_BENCH_TEST} == False"
   espressif/esp-dsp:
     override_path: "../Snore_Det/third_party/esp-dsp"
-    rules:
-      - if: "$CONFIG{PUMP_BENCH_TEST} == False"
   espressif/dl_fft:
     version: ">=0.6.0"
     override_path: "../Snore_Det/third_party/esp-dl/tools/dl_fft"
-    rules:
-      - if: "$CONFIG{PUMP_BENCH_TEST} == False"
   espressif/esp_new_jpeg:
     version: "^1.0.2"
     override_path: "../Snore_Det/third_party/esp_new_jpeg"
-    rules:
-      - if: "$CONFIG{PUMP_BENCH_TEST} == False"
