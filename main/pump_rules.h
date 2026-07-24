@@ -20,7 +20,7 @@
 #define PUMP_RULES_H
 
 #include "snore_feature.h"
-#include "cloud_llm_client.h"  /* for pump_command_t */
+#include "pump_controller.h"
 
 /**
  * 根据当前传感器数据，使用本地规则评估是否需要气泵操作。

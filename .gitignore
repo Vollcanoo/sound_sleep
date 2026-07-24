@@ -1,7 +1,9 @@
 # ESP-IDF 编译产物
 build/
+build-bench*/
 sdkconfig
 sdkconfig.old
+sdkconfig.bench
 
 # Python
 __pycache__/

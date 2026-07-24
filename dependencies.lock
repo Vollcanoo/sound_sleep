@@ -1,75 +1,8 @@
 dependencies:
-  espressif/dl_fft:
-    dependencies:
-    - name: idf
-      version: '>=5.0'
-    source:
-      path: E:\sound_sleep\Snore_Det\third_party\esp-dl\tools\dl_fft
-      type: local
-    version: 0.6.0
-  espressif/esp-dl:
-    dependencies:
-    - matches:
-      - if: target in ["esp32", "esp32c2", "esp32c3", "esp32c6", "esp32p4", "esp32s2", "esp32s3"]
-        version: '>=5.3'
-      - if: target == esp32c5
-        version: '>=5.5'
-      - if: target == esp32s31
-        version: '>=6.0'
-      name: idf
-    - name: espressif/esp_new_jpeg
-      version: ^1
-    - name: espressif/dl_fft
-      version: '>=0.6.0'
-    source:
-      path: E:\sound_sleep\Snore_Det\third_party\esp-dl\esp-dl
-      type: local
-    targets:
-    - esp32
-    - esp32c2
-    - esp32c3
-    - esp32c5
-    - esp32c6
-    - esp32p4
-    - esp32s2
-    - esp32s3
-    - esp32s31
-    version: 3.3.8
-  espressif/esp-dsp:
-    dependencies:
-    - name: idf
-      version: '>=4.2'
-    source:
-      path: E:\sound_sleep\Snore_Det\third_party\esp-dsp
-      type: local
-    version: '*'
-  espressif/esp_new_jpeg:
-    dependencies: []
-    source:
-      path: E:\sound_sleep\Snore_Det\third_party\esp_new_jpeg
-      type: local
-    targets:
-    - esp32
-    - esp32s2
-    - esp32s3
-    - esp32s31
-    - esp32p4
-    - esp32c2
-    - esp32c3
-    - esp32c5
-    - esp32c6
-    - esp32c61
-    - esp32h4
-    version: 1.0.2
   idf:
     source:
       type: idf
-    version: 5.5.2
-direct_dependencies:
-- espressif/dl_fft
-- espressif/esp-dl
-- espressif/esp-dsp
-- espressif/esp_new_jpeg
-manifest_hash: 2f88f1e6edd6517b3bbb576b4272600f394cf7e6735ddc2de9c000c3f2b9fe5f
-target: esp32s3
+    version: 5.5.5
+manifest_hash: fc6138378a33ec067e69ac6050aa02a9c8c09359811146f1985a27aa4157bc99
+target: esp32
 version: 2.0.0

@@ -181,6 +181,78 @@ idf.py build
 Do not use `usbipd attach --wsl` for this Windows workflow: it transfers the
 USB device to WSL and makes the Windows COM port disappear.
 
+## Airbag Bench Test
+
+The firmware includes a minimal, compile-time selectable bench-test mode for
+the left airbag outputs. It starts neither Wi-Fi nor BLE, sensors, snore
+inference, cloud clients, nor sleep-control tasks. Use it only while directly
+observing the GPIO signals and actuator hardware.
+
+Use the dedicated defaults file, SDK config, and build directory below. This avoids the
+optional snore-model dependencies, which are intentionally not included in a
+fresh checkout. This setting changes the compiled firmware, so use a separate
+build directory from the regular sleep-monitor firmware.
+
+The ESP-IDF 5.5.5 GCC/ccache toolchain can fail with `filesystem error:
+Cannot convert character sequence` when the project path contains Chinese
+characters. Build this firmware from an actual ASCII-only project copy.
+`subst` is not sufficient because CMake resolves it back to the original path.
+
+```powershell
+$source = 'E:\物联网\sound_sleep'
+$bench = 'E:\sound_sleep_bench_esp32s3'
+robocopy $source $bench /E /XD .git build build-bench build-bench-utf8 build-bench-esp32s3
+if ($LASTEXITCODE -gt 7) { throw "robocopy failed: $LASTEXITCODE" }
+Set-Location $bench
+
+$env:PYTHONUTF8 = '1'
+$env:IDF_COMPONENT_MANAGER = '0'
+$env:IDF_TARGET = 'esp32s3'
+
+idf.py -B build-bench-esp32s3 `
+  -D IDF_TARGET=esp32s3 `
+  -D SDKCONFIG=sdkconfig.bench `
+  -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.bench.defaults" reconfigure
+
+idf.py -B build-bench-esp32s3 `
+  -D IDF_TARGET=esp32s3 `
+  -D SDKCONFIG=sdkconfig.bench `
+  -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.bench.defaults" build
+
+idf.py -B build-bench-esp32s3 `
+  -D IDF_TARGET=esp32s3 `
+  -D SDKCONFIG=sdkconfig.bench `
+  -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.bench.defaults" `
+  -p COM7 flash monitor
+```
+
+The separate `sdkconfig.bench` is important: an existing regular `sdkconfig`
+can explicitly disable `PUMP_BENCH_TEST`, which would otherwise make CMake
+build the full firmware instead of the minimal bench firmware. Use a new or
+empty ASCII-only `$bench` directory to avoid reusing a stale CMake cache.
+
+`IDF_COMPONENT_MANAGER=0` is safe for this bench firmware because it only
+uses built-in ESP-IDF components. It prevents the test build from resolving
+or rewriting the normal firmware's optional ESP-DL dependency lock file.
+
+Send these commands through the serial monitor:
+
+| Command | Duration | GPIO7 left pump | GPIO9 left valve |
+| --- | --- | --- | --- |
+| `left_inflate 2` | 1-5 seconds | LOW | LOW |
+| `left_deflate 2` | 1-5 seconds | HIGH | HIGH |
+| `left_idle` | immediate | HIGH | LOW |
+| `help` | - | - | - |
+
+The test firmware reads these commands through the board's USB Serial/JTAG
+port, so use the same COM port opened by `idf.py monitor`; no separate UART
+adapter is required.
+
+The default duration is two seconds when omitted. Every completed command
+restores the idle state (`GPIO7=HIGH`, `GPIO9=LOW`). The test firmware limits
+each command to five seconds and always closes the left valve before starting
+the left pump.
+
 ## Mobile App Setup
 
 The Flutter app is maintained in the separate worktree/repository checkout

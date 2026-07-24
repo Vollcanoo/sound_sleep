@@ -1,0 +1,2 @@
+# Minimal firmware for verifying the airbag GPIO outputs.
+CONFIG_PUMP_BENCH_TEST=y

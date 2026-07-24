@@ -41,7 +41,12 @@
 
 
 
-#include "cloud_llm_client.h"
+typedef struct {
+    char action[16];
+    char zone[16];
+    int intensity;
+    int duration_sec;
+} pump_command_t;
 
 
 /*
@@ -183,6 +188,8 @@
  *
  */
 void pump_controller_init(void);
+
+void pump_controller_stop_all(void);
 
 
 

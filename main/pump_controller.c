@@ -51,6 +51,14 @@ static const char *TAG = "PUMP";
 
 
 
+void pump_controller_stop_all(void)
+{
+    gpio_set_level(GPIO_PUMP_LEFT, PUMP_OFF_LEVEL);
+    gpio_set_level(GPIO_PUMP_RIGHT, PUMP_OFF_LEVEL);
+    gpio_set_level(GPIO_VALVE_LEFT, VALVE_CLOSE_LEVEL);
+    gpio_set_level(GPIO_VALVE_RIGHT, VALVE_CLOSE_LEVEL);
+}
+
 void pump_controller_init(void)
 {
 
@@ -81,18 +89,7 @@ void pump_controller_init(void)
      * 初始关闭所有执行器
      */
 
-    gpio_set_level(GPIO_PUMP_LEFT,
-                   PUMP_OFF_LEVEL);
-
-    gpio_set_level(GPIO_PUMP_RIGHT,
-                   PUMP_OFF_LEVEL);
-
-
-    gpio_set_level(GPIO_VALVE_LEFT,
-                   VALVE_CLOSE_LEVEL);
-
-    gpio_set_level(GPIO_VALVE_RIGHT,
-                   VALVE_CLOSE_LEVEL);
+    pump_controller_stop_all();
 
 
 

@@ -17,3 +17,15 @@ config SNORE_I2S_USE_RIGHT_CHANNEL
     default y
 
 endmenu
+
+menu "Pillow airbag bench test"
+
+config PUMP_BENCH_TEST
+    bool "Build airbag bench-test firmware"
+    default n
+    help
+        Build a minimal firmware for verifying the airbag GPIO outputs. It
+        starts only the serial command task and pump controller; Wi-Fi, BLE,
+        sensors, cloud clients, and sleep-control tasks are excluded.
+
+endmenu

@@ -4,6 +4,7 @@
 
 #include "snore_feature.h"
 #include "sleep_session.h"
+#include "pump_controller.h"
 
 /*
  * ============================================================
@@ -22,20 +23,6 @@
  * 首次使用请复制 main/secrets.h.example → main/secrets.h 并填入你的 key
  */
 #include "secrets.h"
-
-/**
- * 气泵控制指令 — 从云端 LLM 响应中解析出
- *
- * 对齐 airbag-hardware 分支:
- *   zone: "left" / "right" / "both" (双气囊左右独立)
- *   action: "inflate" / "deflate" / "hold"
- */
-typedef struct {
-    char action[16];      /* "inflate" = 充气, "deflate" = 放气, "hold" = 保持 */
-    char zone[16];        /* "left" = 左侧, "right" = 右侧, "both" = 双侧 */
-    int  intensity;       /* 强度 0-100 */
-    int  duration_sec;    /* 动作持续时间 (秒) */
-} pump_command_t;
 
 /**
  * 将鼾声+睡姿综合数据发送给云端 LLM，获取睡眠分析报告和气泵控制指令。
