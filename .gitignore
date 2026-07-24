@@ -20,6 +20,7 @@ __pycache__/
 # API 密钥（不纳入版本控制）
 main/secrets.h
 main/models/*.espdl
+!main/models/snoring_esp32_int8.espdl
 lib/config/secrets.dart
 test_api.py
 
