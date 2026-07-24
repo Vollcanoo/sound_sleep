@@ -221,6 +221,13 @@ class DeviceService extends ChangeNotifier {
     await _bleDataService.connectAndSubscribe(bleDevice);
   }
 
+  /// Releases a connection opened only for the Wi-Fi onboarding flow.
+  /// Unbound boards must resume advertising so they can be discovered again.
+  Future<void> cancelProvisioning() async {
+    await _bleDataService.disconnect();
+    _connectedMacAddress = null;
+  }
+
   Future<void> unbindDevice(String deviceId) async {
     final device = _boundDevices.firstWhere((d) => d.id == deviceId);
 

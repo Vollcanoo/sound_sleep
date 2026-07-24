@@ -24,6 +24,8 @@ class DeviceProvider extends ChangeNotifier {
   Future<void> connectForProvisioning(Device device) =>
       _deviceService.connectForProvisioning(device);
 
+  Future<void> cancelProvisioning() => _deviceService.cancelProvisioning();
+
   Future<void> unbindDevice(String deviceId) =>
       _deviceService.unbindDevice(deviceId);
 

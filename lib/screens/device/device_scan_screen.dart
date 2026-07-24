@@ -263,6 +263,11 @@ class _DeviceScanScreenState extends State<DeviceScanScreen>
                                   );
                                   Navigator.of(context).pop();
                                 }
+                              } else {
+                                // The board is not bound until Wi-Fi setup is
+                                // complete. Release this temporary BLE link so
+                                // it resumes advertising and can be found again.
+                                await deviceProvider.cancelProvisioning();
                               }
                             } else {
                               // Mock 设备 — 直接绑定（保留原有逻辑）
