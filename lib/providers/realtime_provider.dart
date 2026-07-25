@@ -8,6 +8,7 @@ import '../services/ble_data_service.dart';
 import '../services/snore_api_service.dart';
 import '../services/sleep_record_generator.dart';
 import '../services/sleep_service.dart';
+import '../services/ai_analysis_service.dart';
 
 enum PumpMode { llm, local }
 
@@ -169,7 +170,15 @@ class RealtimeProvider extends ChangeNotifier {
           : _buildRealtimeSnoringEvents(realtimeSnoreReadings),
     );
 
-    // 存储到 SleepService
+    // 自动调用 LLM 生成 AI 分析（上传前完成）
+    try {
+      final aiService = AiAnalysisService();
+      record.aiAnalysis = await aiService.analyze(record);
+    } catch (e) {
+      debugPrint('Auto AI analysis failed: $e');
+    }
+
+    // 存储到 SleepService（含 AI 分析结果一起上传）
     _sleepService.addRecord(record);
 
     _sessionReadings.clear();

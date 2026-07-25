@@ -526,18 +526,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           '暂无 AI 分析',
           style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
         ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () {
-            context.read<SleepProvider>().requestAiAnalysis(widget.recordId);
-          },
-          icon: const Icon(Icons.auto_awesome, size: 16),
-          label: const Text('获取 AI 分析'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF7C4DFF),
-            side: const BorderSide(color: Color(0xFF7C4DFF)),
-          ),
-        ),
         const SizedBox(height: 4),
       ],
     );

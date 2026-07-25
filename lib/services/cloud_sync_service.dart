@@ -186,6 +186,7 @@ class CloudSyncService {
       'summary': analysis.summary,
       'insights': jsonEncode(analysis.insights),
       'suggestions': jsonEncode(analysis.suggestions),
+      'model': analysis.model,
       'created_at': analysis.analyzedAt.toIso8601String(),
     });
   }
@@ -367,6 +368,7 @@ class CloudSyncService {
       summary: r['summary'] as String? ?? '',
       insights: insights,
       suggestions: suggestions,
+      model: r['model'] as String?,
       analyzedAt: r['created_at'] != null
           ? DateTime.parse(r['created_at'] as String)
           : DateTime.now(),
