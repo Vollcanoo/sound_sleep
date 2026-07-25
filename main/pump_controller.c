@@ -33,21 +33,7 @@
 static const char *TAG = "PUMP";
 
 
-
-/*
- * GPIO有效电平定义
- *
- * 根据实际测试结果确定
- */
-
-
-#define PUMP_ON_LEVEL       0
-#define PUMP_OFF_LEVEL      1
-
-
-#define VALVE_OPEN_LEVEL    1
-#define VALVE_CLOSE_LEVEL   0
-
+/* GPIO 有效电平定义见 pump_controller.h */
 
 
 

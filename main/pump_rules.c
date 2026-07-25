@@ -133,14 +133,12 @@ void pump_evaluate_local_rule(const snore_features_t *feat, pump_command_t *cmd_
         break;
     }
 
-    /* ── 6. 低置信度 → 降低 intensity (×0.7) ─────────── */
+    /* ── 6. 低置信度 → 降低 intensity (×0.7)，保持 duration 不变 ── */
     if (feat->posture.confidence < 0.5f && cmd_out->intensity > 0) {
         int reduced = (int)(cmd_out->intensity * 0.7f);
         ESP_LOGI(TAG, "置信度低(%.2f<0.5) → intensity %d → %d",
                  feat->posture.confidence, cmd_out->intensity, reduced);
         cmd_out->intensity = reduced;
-        /* 重新计算 duration_sec */
-        cmd_out->duration_sec = (int)(5.0f + (reduced / 100.0f) * 15.0f);
     }
 
     /* ── 日志输出 ─────────────────────────────────────── */
