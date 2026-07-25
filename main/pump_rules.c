@@ -1,80 +1,99 @@
-/**
- * pump_rules.c — 本地气泵决策规则
- *
- * 将 cloud_llm_client.c 的 LLM system prompt 中的决策规则
- * 硬编码为 C 函数，用于实时气泵控制（不调用 LLM API）。
- *
- * 数据来源:
- *   - 鼾声: Snore_Det 分支 (INMP441 → ESP-DL → probability)
- *   - 睡姿: Posture_Recognition 分支 (FSR×3 → 规则分类 → posture + confidence)
- *   - 气泵: airbag-hardware 分支 (左/右独立气泵+电磁阀, GPIO7/8/9/10)
- */
 #include <string.h>
+#include <stdint.h>
 #include "esp_log.h"
 #include "pump_rules.h"
 
 static const char *TAG = "PUMP_RULE";
 
-/* ── 鼾声严重程度分级 ─────────────────────────────────── */
+#define LOCAL_CLEAR_FRAME_COUNT     15
+#define LOCAL_INFLATE_DURATION_SEC  8
+#define LOCAL_DEFLATE_DURATION_SEC  8
+
+#define LOCAL_ZONE_LEFT   (1U << 0)
+#define LOCAL_ZONE_RIGHT  (1U << 1)
+
 typedef enum {
-    SNORE_MILD,           /* < 2 分钟/时 */
-    SNORE_MODERATE,       /* 2 ~ 4 分钟/时 */
-    SNORE_SEVERE,         /* >= 4 分钟/时 */
-    SNORE_VERY_SEVERE,    /* max_prob > 0.9 && ratio > 0.1 */
+    SNORE_MILD,
+    SNORE_MODERATE,
+    SNORE_SEVERE,
+    SNORE_VERY_SEVERE,
 } snore_severity_t;
 
-/* ── 辅助: 设置 hold 指令 ─────────────────────────────── */
+/* Command state only; this is not a pressure measurement. */
+static uint8_t s_inflated_zones;
+static uint8_t s_clear_frame_count;
+
+static void set_string(char *destination, size_t destination_size, const char *source)
+{
+    strncpy(destination, source, destination_size - 1);
+    destination[destination_size - 1] = '\0';
+}
+
 static void cmd_hold(pump_command_t *cmd)
 {
-    strncpy(cmd->action, "hold", sizeof(cmd->action) - 1);
-    cmd->action[sizeof(cmd->action) - 1] = '\0';
-    strncpy(cmd->zone, "both", sizeof(cmd->zone) - 1);
-    cmd->zone[sizeof(cmd->zone) - 1] = '\0';
-    cmd->intensity    = 0;
+    set_string(cmd->action, sizeof(cmd->action), "hold");
+    set_string(cmd->zone, sizeof(cmd->zone), "both");
+    cmd->intensity = 0;
     cmd->duration_sec = 0;
 }
 
-/* ── 辅助: 设置 inflate 指令 ──────────────────────────── */
 static void cmd_inflate(pump_command_t *cmd, const char *zone, int intensity)
 {
-    strncpy(cmd->action, "inflate", sizeof(cmd->action) - 1);
-    cmd->action[sizeof(cmd->action) - 1] = '\0';
-    strncpy(cmd->zone, zone, sizeof(cmd->zone) - 1);
-    cmd->zone[sizeof(cmd->zone) - 1] = '\0';
+    set_string(cmd->action, sizeof(cmd->action), "inflate");
+    set_string(cmd->zone, sizeof(cmd->zone), zone);
     cmd->intensity = intensity;
-    /* duration_sec 按 intensity 比例在 5-20 秒区间调节 */
-    /* Local-rule demo commands always run the pump for six seconds. */
-    cmd->duration_sec = 6;
+    cmd->duration_sec = LOCAL_INFLATE_DURATION_SEC;
 }
 
-/* ────────────────────────────────────────────────────────
- *  公开接口: pump_evaluate_local_rule()
- *
- *  决策规则与 cloud_llm_client.c SYSTEM_PROMPT 完全对齐
- * ──────────────────────────────────────────────────────── */
+static void cmd_deflate(pump_command_t *cmd, const char *zone)
+{
+    set_string(cmd->action, sizeof(cmd->action), "deflate");
+    set_string(cmd->zone, sizeof(cmd->zone), zone);
+    cmd->intensity = 0;
+    cmd->duration_sec = LOCAL_DEFLATE_DURATION_SEC;
+}
+
+static bool cmd_deflate_active_zones(pump_command_t *cmd)
+{
+    if (s_inflated_zones == 0) return false;
+
+    if (s_inflated_zones == (LOCAL_ZONE_LEFT | LOCAL_ZONE_RIGHT)) {
+        cmd_deflate(cmd, "both");
+    } else if (s_inflated_zones & LOCAL_ZONE_LEFT) {
+        cmd_deflate(cmd, "left");
+    } else {
+        cmd_deflate(cmd, "right");
+    }
+    return true;
+}
+
 void pump_evaluate_local_rule(const snore_features_t *feat, pump_command_t *cmd_out)
 {
-    /* ── 1. 默认 hold ─────────────────────────────────── */
     cmd_hold(cmd_out);
 
-    /* ── 2. 未检测到鼾声 → hold ──────────────────────── */
     if (!feat->snore_detected) {
-        ESP_LOGI(TAG, "未检测到鼾声 → hold");
+        if (s_inflated_zones != 0 && ++s_clear_frame_count >= LOCAL_CLEAR_FRAME_COUNT) {
+            cmd_deflate_active_zones(cmd_out);
+            s_clear_frame_count = 0;
+            ESP_LOGI(TAG, "No snore for %d frames -> deflate %s",
+                     LOCAL_CLEAR_FRAME_COUNT, cmd_out->zone);
+        } else {
+            ESP_LOGI(TAG, "No snore -> hold");
+        }
+        return;
+    }
+    s_clear_frame_count = 0;
+
+    posture_t posture = feat->posture.posture;
+    if (posture == POSTURE_MOVING || posture == POSTURE_NO_HEAD) {
+        if (cmd_deflate_active_zones(cmd_out)) {
+            ESP_LOGI(TAG, "%s -> deflate %s", posture_name(posture), cmd_out->zone);
+        } else {
+            ESP_LOGI(TAG, "%s -> hold", posture_name(posture));
+        }
         return;
     }
 
-    /* ── 3. 不可操作的睡姿 → hold ────────────────────── */
-    posture_t p = feat->posture.posture;
-    if (p == POSTURE_MOVING) {
-        ESP_LOGI(TAG, "翻身中(MOVING) → hold (等待稳定)");
-        return;
-    }
-    if (p == POSTURE_NO_HEAD) {
-        ESP_LOGI(TAG, "头不在枕上(NO_HEAD) → hold");
-        return;
-    }
-
-    /* ── 4. 鼾声严重程度分级 ──────────────────────────── */
     snore_severity_t severity;
     if (feat->max_probability > 0.9f && feat->positive_window_ratio > 0.1f) {
         severity = SNORE_VERY_SEVERE;
@@ -86,67 +105,59 @@ void pump_evaluate_local_rule(const snore_features_t *feat, pump_command_t *cmd_
         severity = SNORE_MILD;
     }
 
-    /* ── 鼾声轻微 → hold (任何姿势) ─────────────────── */
     if (severity == SNORE_MILD) {
-        ESP_LOGI(TAG, "%s + 鼾声轻微(%.1f分钟/时) → hold",
-                 posture_name(p), feat->snore_minutes_per_hour);
+        ESP_LOGI(TAG, "%s + mild snore -> hold", posture_name(posture));
         return;
     }
 
-    /* ── 5. 根据睡姿 + 严重程度决策 ──────────────────── */
-    switch (p) {
+    switch (posture) {
     case POSTURE_SUPINE:
-        switch (severity) {
-        case SNORE_MODERATE:
-            /* 仰卧 + 中等: inflate right, intensity 40 */
-            cmd_inflate(cmd_out, "right", 40);
-            break;
-        case SNORE_SEVERE:
-            /* 仰卧 + 严重: inflate right, intensity 70 */
-            cmd_inflate(cmd_out, "right", 70);
-            break;
-        case SNORE_VERY_SEVERE:
-            /* 仰卧 + 非常严重: inflate right, intensity 80 */
-            cmd_inflate(cmd_out, "right", 80);
-            break;
-        default:
-            break;
-        }
+        if (severity == SNORE_MODERATE) cmd_inflate(cmd_out, "right", 40);
+        else if (severity == SNORE_SEVERE) cmd_inflate(cmd_out, "right", 70);
+        else if (severity == SNORE_VERY_SEVERE) cmd_inflate(cmd_out, "right", 80);
         break;
-
     case POSTURE_LEFT_SIDE:
-        if (severity >= SNORE_SEVERE) {
-            /* 左侧卧 + 严重: inflate left, intensity 60 */
-            cmd_inflate(cmd_out, "left", 60);
-        }
+        if (severity >= SNORE_SEVERE) cmd_inflate(cmd_out, "left", 60);
         break;
-
     case POSTURE_RIGHT_SIDE:
-        if (severity >= SNORE_SEVERE) {
-            /* 右侧卧 + 严重: inflate right, intensity 60 */
-            cmd_inflate(cmd_out, "right", 60);
-        }
+        if (severity >= SNORE_SEVERE) cmd_inflate(cmd_out, "right", 60);
         break;
-
     default:
-        /* 其他姿势已在上面过滤 */
         break;
     }
 
-    /* ── 6. 低置信度 → 降低 intensity (×0.7)，保持 duration 不变 ── */
     if (feat->posture.confidence < 0.5f && cmd_out->intensity > 0) {
-        int reduced = (int)(cmd_out->intensity * 0.7f);
-        ESP_LOGI(TAG, "置信度低(%.2f<0.5) → intensity %d → %d",
-                 feat->posture.confidence, cmd_out->intensity, reduced);
-        cmd_out->intensity = reduced;
+        cmd_out->intensity = (int)(cmd_out->intensity * 0.7f);
     }
 
-    /* ── 日志输出 ─────────────────────────────────────── */
-    ESP_LOGI(TAG, "决策: 睡姿=%s(置信度%.2f), 鼾声=%.1f分钟/时, "
-             "max_prob=%.2f, ratio=%.2f → %s zone=%s intensity=%d duration=%ds",
-             posture_name(p), feat->posture.confidence,
-             feat->snore_minutes_per_hour,
-             feat->max_probability, feat->positive_window_ratio,
-             cmd_out->action, cmd_out->zone,
+    ESP_LOGI(TAG, "Decision: posture=%s confidence=%.2f snore=%.1f max=%.2f ratio=%.2f -> %s %s %d%% %ds",
+             posture_name(posture), feat->posture.confidence,
+             feat->snore_minutes_per_hour, feat->max_probability,
+             feat->positive_window_ratio, cmd_out->action, cmd_out->zone,
              cmd_out->intensity, cmd_out->duration_sec);
+}
+
+void pump_rules_record_queued_command(const pump_command_t *cmd)
+{
+    if (strcmp(cmd->action, "inflate") == 0) {
+        if (strcmp(cmd->zone, "left") == 0 || strcmp(cmd->zone, "both") == 0) {
+            s_inflated_zones |= LOCAL_ZONE_LEFT;
+        }
+        if (strcmp(cmd->zone, "right") == 0 || strcmp(cmd->zone, "both") == 0) {
+            s_inflated_zones |= LOCAL_ZONE_RIGHT;
+        }
+    } else if (strcmp(cmd->action, "deflate") == 0) {
+        if (strcmp(cmd->zone, "left") == 0 || strcmp(cmd->zone, "both") == 0) {
+            s_inflated_zones &= ~LOCAL_ZONE_LEFT;
+        }
+        if (strcmp(cmd->zone, "right") == 0 || strcmp(cmd->zone, "both") == 0) {
+            s_inflated_zones &= ~LOCAL_ZONE_RIGHT;
+        }
+    }
+}
+
+void pump_rules_reset(void)
+{
+    s_inflated_zones = 0;
+    s_clear_frame_count = 0;
 }

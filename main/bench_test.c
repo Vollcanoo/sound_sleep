@@ -11,14 +11,17 @@
 #include "pump_controller.h"
 
 static const char *TAG = "PUMP_BENCH";
-static const int kMaxDurationSec = 5;
+static const int kMaxDurationSec = 8;
 
 static void print_help(void)
 {
     printf("\nCommands:\n");
-    printf("  left_inflate [1-5]  GPIO7 LOW, GPIO9 LOW\n");
-    printf("  left_deflate [1-5]  GPIO7 HIGH, GPIO9 HIGH\n");
-    printf("  left_idle            GPIO7 HIGH, GPIO9 LOW\n");
+    printf("  left_inflate [1-8]   GPIO7 HIGH, GPIO9 LOW\n");
+    printf("  left_deflate [1-8]   GPIO7 LOW,  GPIO9 HIGH\n");
+    printf("  left_idle             GPIO7 LOW,  GPIO9 LOW\n");
+    printf("  right_inflate [1-8]  GPIO8 HIGH, GPIO10 LOW\n");
+    printf("  right_deflate [1-8]  GPIO8 LOW,  GPIO10 HIGH\n");
+    printf("  right_idle            GPIO8 LOW,  GPIO10 LOW\n");
     printf("  help\n\n");
 }
 
@@ -31,19 +34,19 @@ static int parse_duration(const char *text)
     return (seconds >= 1 && seconds <= kMaxDurationSec) ? seconds : -1;
 }
 
-static void execute_left_command(const char *action, int seconds)
+static void execute_command(const char *action, const char *zone, int seconds)
 {
     pump_command_t command = {
         .intensity = 100,
         .duration_sec = seconds,
     };
     strncpy(command.action, action, sizeof(command.action) - 1);
-    strncpy(command.zone, "left", sizeof(command.zone) - 1);
+    strncpy(command.zone, zone, sizeof(command.zone) - 1);
 
-    ESP_LOGW(TAG, "Executing %s for %d second(s)", action, seconds);
+    ESP_LOGW(TAG, "Executing %s %s for %d second(s)", zone, action, seconds);
     pump_execute_command(&command);
     pump_controller_stop_all();
-    ESP_LOGI(TAG, "Idle restored: GPIO7=HIGH GPIO9=LOW");
+    ESP_LOGI(TAG, "Idle restored: pumps=LOW valves=LOW");
 }
 
 static void process_line(char *line)
@@ -66,17 +69,20 @@ static void process_line(char *line)
 
     if (strcmp(line, "help") == 0 || line[0] == '\0') {
         print_help();
-    } else if (strcmp(line, "left_idle") == 0 && argument[0] == '\0') {
+    } else if ((strcmp(line, "left_idle") == 0 || strcmp(line, "right_idle") == 0) &&
+               argument[0] == '\0') {
         pump_controller_stop_all();
-        ESP_LOGI(TAG, "Idle: GPIO7=HIGH GPIO9=LOW");
-    } else if (strcmp(line, "left_inflate") == 0 || strcmp(line, "left_deflate") == 0) {
+        ESP_LOGI(TAG, "Idle: pumps=LOW valves=LOW");
+    } else if (strcmp(line, "left_inflate") == 0 || strcmp(line, "left_deflate") == 0 ||
+               strcmp(line, "right_inflate") == 0 || strcmp(line, "right_deflate") == 0) {
         int seconds = parse_duration(argument);
         if (seconds < 0) {
             ESP_LOGE(TAG, "Duration must be an integer from 1 to %d", kMaxDurationSec);
             return;
         }
-        execute_left_command(strcmp(line, "left_inflate") == 0 ? "inflate" : "deflate",
-                             seconds);
+        const char *zone = strncmp(line, "left_", 5) == 0 ? "left" : "right";
+        const char *action = strstr(line, "inflate") != NULL ? "inflate" : "deflate";
+        execute_command(action, zone, seconds);
     } else {
         ESP_LOGE(TAG, "Unknown command: %s", line);
         print_help();

@@ -5,8 +5,8 @@
  *
  * GPIO7/8:
  *   左/右气泵 MOS驱动模块
- *   LOW  = 开泵 (PUMP_ON_LEVEL = 0)
- *   HIGH = 关泵 (PUMP_OFF_LEVEL = 1)
+ *   HIGH = 开泵 (PUMP_ON_LEVEL = 1)
+ *   LOW  = 关泵 (PUMP_OFF_LEVEL = 0)
  *
  * GPIO9/10:
  *   左/右泄气阀 MOS驱动模块
@@ -51,22 +51,22 @@ void pump_controller_stop_all(void)
 
 void pump_controller_init(void)
 {
-    /* Pre-set pump pins HIGH (off) before configuring as output to avoid
-     * a brief LOW glitch that would momentarily activate the pumps. */
+    /* Pre-set pump pins LOW (off) before configuring as output to avoid
+     * a brief HIGH glitch that would momentarily activate the pumps. */
     gpio_set_level(GPIO_PUMP_LEFT, PUMP_OFF_LEVEL);
     gpio_set_level(GPIO_PUMP_RIGHT, PUMP_OFF_LEVEL);
     gpio_set_level(GPIO_VALVE_LEFT, VALVE_CLOSE_LEVEL);
     gpio_set_level(GPIO_VALVE_RIGHT, VALVE_CLOSE_LEVEL);
 
-    /* 气泵引脚: pull-up 确保硬复位期间 GPIO 不浮空到 LOW (= 泵启动)。
+    /* 气泵引脚: pull-down 确保硬复位期间 GPIO 不浮空到 HIGH (= 泵启动)。
      * 泄气阀引脚: 浮空 LOW = 阀关闭，安全，无需 pull。 */
     gpio_config_t pump_conf = {
         .pin_bit_mask =
             (1ULL << GPIO_PUMP_LEFT) |
             (1ULL << GPIO_PUMP_RIGHT),
         .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
 
@@ -98,7 +98,7 @@ void pump_controller_init(void)
 
 
     ESP_LOGI(TAG,
-             "Pump: GPIO%d GPIO%d (LOW=ON)",
+              "Pump: GPIO%d GPIO%d (HIGH=ON)",
              GPIO_PUMP_LEFT,
              GPIO_PUMP_RIGHT);
 

@@ -31,6 +31,7 @@
 #include "wifi_provision.h"
 #include "wifi_manager.h"
 #include "pump_controller.h"
+#include "pump_rules.h"
 #include "freertos/semphr.h"
 
 static volatile bool s_wifi_connecting = false;
@@ -116,6 +117,7 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"monitor_stopped\"}";
                 monitor_control_set_manual(false);
                 llm_periodic_reset();
+                pump_rules_reset();
                 pump_controller_stop_all();
                 send_json_line(reply);
                 ESP_LOGI(TAG, "Manual monitoring disabled by BLE, pump stopped");
@@ -126,11 +128,13 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
                 ESP_LOGI(TAG, "WiFi credentials cleared by BLE");
             } else if (strcmp(buf, "pump_mode_llm") == 0) {
                 monitor_control_set_pump_mode(PUMP_MODE_LLM);
+                pump_rules_reset();
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"pump_mode_llm\"}";
                 send_json_line(reply);
                 ESP_LOGI(TAG, "Pump mode set to LLM by BLE");
             } else if (strcmp(buf, "pump_mode_local") == 0) {
                 monitor_control_set_pump_mode(PUMP_MODE_LOCAL);
+                pump_rules_reset();
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"pump_mode_local\"}";
                 send_json_line(reply);
                 ESP_LOGI(TAG, "Pump mode set to LOCAL by BLE");

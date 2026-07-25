@@ -30,4 +30,7 @@
  */
 void pump_evaluate_local_rule(const snore_features_t *feat, pump_command_t *cmd_out);
 
+void pump_rules_record_queued_command(const pump_command_t *cmd);
+void pump_rules_reset(void);
+
 #endif /* PUMP_RULES_H */

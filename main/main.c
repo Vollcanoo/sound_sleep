@@ -97,6 +97,7 @@ static void cloud_task(void *arg)
                         ESP_LOGI(TAG, "🎮 气泵指令(local): %s %s (强度%d%%, %ds)",
                                  cmd.action, cmd.zone, cmd.intensity, cmd.duration_sec);
                         if (xQueueSend(s_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                            pump_rules_record_queued_command(&cmd);
                             s_local_rule_next_allowed_ms = local_now_ms + LOCAL_RULE_COOLDOWN_MS;
                         }
                     }
@@ -191,6 +192,7 @@ static void cloud_task(void *arg)
                 /* 重置会话，等待下一次睡眠 */
                 session_reset();
                 llm_periodic_reset();
+                pump_rules_reset();
             }
         }
     }
