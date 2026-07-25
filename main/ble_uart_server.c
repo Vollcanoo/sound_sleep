@@ -208,6 +208,18 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
             s_conn_handle = event->connect.conn_handle;
             s_advertising = false;
             ESP_LOGI(TAG, "📱 客户端已连接 (handle=%d)", s_conn_handle);
+
+            /* 请求更宽松的连接参数，防止 WiFi 共存时 BLE 超时断连
+             * interval: 60-100ms, latency: 2, supervision timeout: 6s */
+            struct ble_gap_upd_params params = {
+                .itvl_min = 48,   /* 48 * 1.25ms = 60ms */
+                .itvl_max = 80,   /* 80 * 1.25ms = 100ms */
+                .latency  = 2,
+                .supervision_timeout = 600, /* 600 * 10ms = 6s */
+                .min_ce_len = 0,
+                .max_ce_len = 0,
+            };
+            ble_gap_update_params(s_conn_handle, &params);
         } else {
             s_advertising = false;
             ESP_LOGW(TAG, "连接失败, status=%d", event->connect.status);
