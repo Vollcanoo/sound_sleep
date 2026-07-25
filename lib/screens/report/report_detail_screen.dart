@@ -373,8 +373,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '未配置 API 密钥，当前使用本地规则分析。'
-                    '如需 AI 深度分析，请配置 VolcEngine API 密钥。',
+                    aiAnalysis.model!.contains('未配置')
+                        ? '未配置 API 密钥，当前使用本地规则分析。'
+                          '如需 AI 深度分析，请配置 VolcEngine API 密钥。'
+                        : '云端 AI 分析请求失败（网络超时），已使用本地规则生成分析。',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.orange.shade800,

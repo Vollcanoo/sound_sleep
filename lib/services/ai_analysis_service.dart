@@ -27,7 +27,7 @@ class AiAnalysisService {
     if (_apiKey.isNotEmpty) {
       return _analyzeRemote(record);
     }
-    return _analyzeLocal(record);
+    return _analyzeLocal(record, keyMissing: true);
   }
 
   /// ── 火山引擎云端分析 ──
@@ -55,7 +55,7 @@ class AiAnalysisService {
             },
             body: jsonEncode(payload),
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 60));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -209,7 +209,7 @@ class AiAnalysisService {
 
   /// ── 本地规则分析（VolcEngine 不可用时的 fallback）──
   /// 根据睡眠数据用简单规则生成分析，模拟 LLM 的输出格式
-  Future<AiAnalysis> _analyzeLocal(SleepRecord record) async {
+  Future<AiAnalysis> _analyzeLocal(SleepRecord record, {bool keyMissing = false}) async {
     // 模拟网络延迟
     await Future.delayed(const Duration(milliseconds: 1200));
 
@@ -333,7 +333,7 @@ class AiAnalysisService {
       insights: insights,
       suggestions: suggestions,
       analyzedAt: DateTime.now(),
-      model: '本地规则分析（未配置 VolcEngine API 密钥）',
+      model: keyMissing ? '本地规则分析（未配置 VolcEngine API 密钥）' : '本地规则分析（云端请求失败，已回退）',
     );
   }
 }
