@@ -181,6 +181,11 @@ static void cloud_task(void *arg)
 
                 /* 会话结束，关闭气泵并放气回中性状态 */
                 pump_controller_stop_all();
+                /* 清空残留的气泵命令，防止 pump_task 执行过期指令 */
+                {
+                    pump_command_t stale;
+                    while (xQueueReceive(s_cmd_queue, &stale, 0) == pdTRUE) {}
+                }
                 ESP_LOGI(TAG, "气泵已关闭，气囊恢复中性状态");
 
                 /* 重置会话，等待下一次睡眠 */
