@@ -15,6 +15,7 @@
 #include "llm_periodic.h"
 #include "snore_feature.h"
 #include "cloud_llm_client.h"
+#include "wifi_manager.h"
 
 static const char *TAG = "LLM_PERIODIC";
 
@@ -103,6 +104,12 @@ void llm_periodic_on_frame(const snore_features_t *feat)
     /* 达到 5 分钟窗口 */
     if (s_stats.frame_count >= LLM_WINDOW_FRAMES) {
         int fc = s_stats.frame_count;
+
+        if (!wifi_manager_is_connected()) {
+            ESP_LOGW(TAG, "WiFi 未连接，跳过本轮 LLM 调用");
+            memset(&s_stats, 0, sizeof(s_stats));
+            return;
+        }
 
         /* 堆分配 summary 给 one-shot task */
         llm_window_summary_t *summary = malloc(sizeof(llm_window_summary_t));

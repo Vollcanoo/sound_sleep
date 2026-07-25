@@ -354,11 +354,7 @@ void app_main(void)
     /* ── 4. 尝试使用 NVS 中已保存的 WiFi 凭据 ───── */
     bool wifi_connected = false;
 
-    /* Retain NVS credentials, but never auto-connect during boot. Wi-Fi is
-     * connected only after a BLE wifi_config command is received. */
-    const bool connect_wifi_on_boot = false;
-    ESP_LOGI(TAG, "WiFi auto-connect disabled; use BLE wifi_config to connect");
-    if (connect_wifi_on_boot && wifi_provision_has_credentials()) {
+    if (wifi_provision_has_credentials()) {
         char ssid[33] = {0};
         char pass[65] = {0};
 
@@ -370,8 +366,7 @@ void app_main(void)
                 ESP_LOGI(TAG, "✅ WiFi 连接成功（使用已保存的凭据）");
                 wifi_connected = true;
             } else {
-                ESP_LOGW(TAG, "已保存的凭据连接失败，清除并进入 BLE 配网模式");
-                wifi_provision_clear_credentials();
+                ESP_LOGW(TAG, "已保存的凭据连接失败，保留凭据等待 BLE 重新配网");
             }
         }
     }

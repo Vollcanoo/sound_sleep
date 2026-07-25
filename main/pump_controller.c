@@ -5,8 +5,8 @@
  *
  * GPIO7/8:
  *   左/右气泵 MOS驱动模块
- *   HIGH = 开泵
- *   LOW  = 关泵
+ *   LOW  = 开泵 (PUMP_ON_LEVEL = 0)
+ *   HIGH = 关泵 (PUMP_OFF_LEVEL = 1)
  *
  * GPIO9/10:
  *   左/右泄气阀 MOS驱动模块
@@ -41,8 +41,8 @@ static const char *TAG = "PUMP";
  */
 
 
-#define PUMP_ON_LEVEL       1
-#define PUMP_OFF_LEVEL      0
+#define PUMP_ON_LEVEL       0
+#define PUMP_OFF_LEVEL      1
 
 
 #define VALVE_OPEN_LEVEL    1
@@ -61,6 +61,12 @@ void pump_controller_stop_all(void)
 
 void pump_controller_init(void)
 {
+    /* Pre-set pump pins HIGH (off) before configuring as output to avoid
+     * a brief LOW glitch that would momentarily activate the pumps. */
+    gpio_set_level(GPIO_PUMP_LEFT, PUMP_OFF_LEVEL);
+    gpio_set_level(GPIO_PUMP_RIGHT, PUMP_OFF_LEVEL);
+    gpio_set_level(GPIO_VALVE_LEFT, VALVE_CLOSE_LEVEL);
+    gpio_set_level(GPIO_VALVE_RIGHT, VALVE_CLOSE_LEVEL);
 
     gpio_config_t io_conf = {
 
@@ -98,7 +104,7 @@ void pump_controller_init(void)
 
 
     ESP_LOGI(TAG,
-             "Pump: GPIO%d GPIO%d (HIGH=ON)",
+             "Pump: GPIO%d GPIO%d (LOW=ON)",
              GPIO_PUMP_LEFT,
              GPIO_PUMP_RIGHT);
 

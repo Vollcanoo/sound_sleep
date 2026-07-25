@@ -123,31 +123,31 @@ typedef struct {
  *
  * 气泵 MOS 模块:
  *
- *      LOW
+ *      LOW (0)
  *        ↓
- *      气泵开启
+ *      气泵开启 (PUMP_ON_LEVEL = 0)
  *
- *      HIGH
+ *      HIGH (1)
  *        ↓
- *      气泵关闭
+ *      气泵关闭 (PUMP_OFF_LEVEL = 1)
  *
  *
  *
  * 泄气阀 MOS 模块:
  *
- *      HIGH
+ *      HIGH (1)
  *        ↓
- *      泄气阀打开
+ *      泄气阀打开 (VALVE_OPEN_LEVEL = 1)
  *
- *      LOW
+ *      LOW (0)
  *        ↓
- *      泄气阀关闭
+ *      泄气阀关闭 (VALVE_CLOSE_LEVEL = 0)
  *
  */
 
 
-#define PUMP_ON_LEVEL          1
-#define PUMP_OFF_LEVEL         0
+#define PUMP_ON_LEVEL          0
+#define PUMP_OFF_LEVEL         1
 
 
 #define VALVE_OPEN_LEVEL       1
