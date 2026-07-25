@@ -1,136 +1,98 @@
-# sound_sleep
+# SleepMonitor Flutter App
 
-面向全国大学生物联网设计竞赛的智能睡眠监测与健康辅助系统。
+Android companion app for the ESP32-S3 SleepMonitor firmware. The app scans for
+the `SleepMonitor` BLE peripheral, performs BLE Wi-Fi provisioning, and sends
+the monitor start/stop commands.
 
-## 项目简介
+The matching firmware documentation, wiring diagram, and ESP-IDF build steps
+are in the firmware checkout at `E:\sound_sleep\README.md`.
 
-本项目面向居家睡眠场景，利用物联网传感器、边缘设备和轻量级人工智能模型，对睡眠过程中的声音、姿态等信息进行连续监测，为用户提供非接触式、低负担的睡眠状态分析能力。
+## Prerequisites
 
-项目重点关注阻塞性睡眠呼吸暂停（OSA）相关风险的早期筛查辅助。系统通过检测鼾声、分析睡眠姿态和统计夜间事件，为用户和云端服务提供可解释的睡眠信息。项目输出属于健康辅助信息，不能替代医院诊断或多导睡眠监测。
+- Flutter stable with Dart 3.12.2 or newer
+- Android SDK and accepted Android SDK licenses
+- JDK configured for Gradle
+- Android phone with Developer options and USB debugging enabled
+- Bluetooth and Nearby devices permission granted to the app
 
-## 参赛主题
+Verify the toolchain and phone:
 
-项目拟参加全国大学生物联网设计竞赛，主题方向为：
-
-> 面向居家睡眠场景的多模态智能监测与鼾声风险筛查系统
-
-项目将物联网感知、嵌入式边缘计算、轻量级深度学习和云端数据服务结合起来，形成从传感器采集到用户反馈的完整闭环：
-
-```text
-睡眠声音/姿态采集
-        ↓
-ESP32-S3 等边缘设备预处理
-        ↓
-鼾声二分类、姿态识别和事件统计
-        ↓
-本地提示与云端 JSON 数据上传
-        ↓
-睡眠报告、风险趋势和辅助干预
+```powershell
+flutter doctor
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+& $adb devices
 ```
 
-## 核心功能
+The phone must appear with state `device`, not `unauthorized` or `offline`.
 
-- 鼾声二分类：判断短时音频窗口是否包含鼾声（`snore / non_snore`）。
-- 鼾声事件提取：将连续的鼾声窗口合并为事件，统计开始时间、持续时间、事件数量和每小时发生频率。
-- 睡眠姿态识别：识别用户在睡眠过程中的姿态变化，为姿态与鼾声之间的关系分析提供依据。
-- 边缘侧实时处理：尽量在设备端完成音频特征提取和模型推理，降低原始音频上传带宽与隐私风险。
-- 云端数据服务：通过结构化 JSON 接收窗口结果、事件结果和整夜摘要，支持可视化与历史趋势分析。
+## Build and Install
 
-## 分支说明
+```powershell
+cd E:\sound_sleep_snore_publish
+flutter pub get
+flutter build apk --debug
 
-当前仓库按功能模块组织开发：
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+& $adb install -r .\build\app\outputs\flutter-apk\app-debug.apk
+```
 
-| 分支 | 内容 |
+The debug APK is produced at:
+
+```text
+build/app/outputs/flutter-apk/app-debug.apk
+```
+
+If Gradle cannot download dependencies, configure the HTTP/HTTPS proxy used by
+your local network before running the build. If `flutter run` marks a connected
+phone as unsupported while `adb devices` reports `device`, use the APK install
+command above instead.
+
+## Use With the Board
+
+1. Flash and power the ESP32-S3 firmware. Confirm it advertises as
+   `SleepMonitor` in the serial log.
+2. Open **My Devices**, scan, select `SleepMonitor`, and bind it. Scanning
+   filters by the board name or Nordic UART Service UUID, avoiding unrelated
+   nearby devices.
+3. Send the Wi-Fi SSID and password. The ESP32 supports 2.4 GHz Wi-Fi only.
+4. Return to the dashboard and tap **Start Monitoring**. The app sends
+   `monitor_start` using a BLE write with response. It only displays the
+   monitoring state after the write succeeds.
+5. Tap **Stop Monitoring** to send `monitor_stop`.
+6. Swipe a bound device left to unbind. The app sends `monitor_stop`, waits for
+   the write, then disconnects. The board keeps BLE advertising, so it can be
+   scanned and bound again later.
+
+## BLE Contract
+
+The app uses Nordic UART Service:
+
+| Item | UUID |
 | --- | --- |
-| `main` | 项目总览、竞赛方案和后续集成入口 |
-| `Posture_Recognition` | 睡眠姿态识别相关的 ESP32/嵌入式实现 |
-| `Snore_Det` | 轻量级鼾声二分类模型、特征提取、训练、推理和 JSON 输出说明 |
+| Service | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
+| Board notify TX | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
+| Phone write RX | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
 
-### `Snore_Det` 鼾声检测分支
+Commands sent by this app:
 
-鼾声检测分支参考轻量级移动端鼾声检测方案，并结合当前数据集特点进行了扩展：
+- `monitor_start`
+- `monitor_stop`
+- `{"cmd":"wifi_config","ssid":"...","pass":"..."}`
 
-- MFCC 特征用于描述声音的谱包络；
-- HPSS 和 Log-Mel 特征用于区分谐波、打击性和环境声成分；
-- 声学统计特征用于描述能量、频谱、过零率和频带分布；
-- 包络自相关、调制频率和节律稳定性特征用于利用鼾声的连续性与周期性；
-- 2 秒子窗口与上下文信息用于减少 5 秒弱标注窗口中的标签稀释；
-- 推理输出包含 JSON、窗口级 CSV 和鼾声事件 CSV。
+## Current Limitations
 
-该分支的详细使用方法见 [`Snore_Det/README.md`](https://github.com/Vollcanoo/sound_sleep/tree/Snore_Det/Snore_Det)。
+1. The app can parse the planned posture CSV stream, but the present firmware
+   does not emit posture frames through NUS TX. The realtime posture/pressure
+   widgets must therefore not be interpreted as verified live board data yet.
+2. BLE monitor-control behaviour requires a hardware regression after every
+   firmware flash: no snore inference before Start, inference after Start, and
+   `SleepMonitor` advertising again after unbind.
+3. The app is currently developed and tested for Android. Desktop/mock paths
+   are development aids, not hardware validation.
+4. Sleep/OSA-related values are not medical advice or diagnostic output.
 
-### `Posture_Recognition` 姿态识别分支
+## Sensitive Files
 
-该分支用于存放睡眠姿态识别相关的嵌入式代码和设备侧实现，后续将与鼾声检测结果进行时间对齐，形成声音与姿态的联合分析。
-
-## 系统架构
-
-### 感知层
-
-- 麦克风或声音传感器：采集夜间呼吸声和鼾声；
-- 压力、姿态或柔性传感器：采集睡眠姿态及翻身变化；
-- ESP32-S3：负责数据采集、预处理、轻量模型推理和通信。
-
-### 边缘智能层
-
-边缘设备对音频进行分帧、重采样、滤波和特征提取，然后运行量化后的轻量模型。设备不需要直接运行 Python 的 `pkl` 文件，实际部署时应将模型转换为适合 ESP-DL、TensorFlow Lite Micro 或其他嵌入式推理框架的格式。
-
-### 云端服务层
-
-边缘设备上传结构化结果，而不是默认上传整夜原始音频。推荐上传内容包括：
-
-- 时间戳和设备 ID；
-- 窗口鼾声概率与二分类结果；
-- 鼾声事件起止时间和持续时间；
-- 姿态变化事件；
-- 整夜鼾声比例、事件数量和每小时统计。
-
-## 数据与隐私
-
-训练数据不提交到 Git 仓库。数据集地址、数据清单格式和本地目录组织方式将在对应模型分支中说明。生产系统应优先采用边缘侧特征提取和结果上传，原始音频的存储与传输需要经过用户授权并进行访问控制。
-
-## 项目进展
-
-- 已完成仓库基础结构和姿态识别分支整理；
-- 已完成鼾声二分类模型代码、训练脚本和推理脚本整理；
-- 已加入节律与上下文特征，用于利用鼾声的连续性和周期性；
-- 已定义云端可使用的统一 JSON 输出格式；
-- 正在进行目标传感器适配、模型量化和 ESP32-S3 端侧部署验证。
-
-## 后续计划
-
-1. 根据最终传感器确定采样率、增益、频响范围和安装位置。
-2. 完成真实卧室环境下的误报样本复核和模型再训练。
-3. 将 Python 模型转换为嵌入式可执行的量化模型。
-4. 完成 ESP32-S3 的实时音频缓存、特征提取和推理链路。
-5. 打通设备、云端和可视化页面，形成完整竞赛演示系统。
-6. 在不同用户、房间和设备条件下进行独立测试，报告 precision、recall、F1 和端侧延迟。
-
-## 目录结构
-
-```text
-sound_sleep/
-├── README.md
-├── Posture Recognition/
-│   ├── posture_recognition.ino
-│   └── README.md
-└── Snore_Det/
-    ├── README.md
-    ├── requirements.txt
-    ├── train_physics_snore.py
-    ├── predict_physics_snore.py
-    ├── asmm_osa/
-    │   ├── physics_snore_features.py
-    │   ├── physics_snore_modeling.py
-    │   ├── light_snore_features.py
-    │   ├── light_snore_modeling.py
-    │   ├── light_snore_postprocess.py
-    │   ├── snore_subwindows.py
-    │   └── snore_output.py
-    └── docs/
-        └── snore_output_json_contract.md
-```
-
-## 免责声明
-
-本项目用于物联网竞赛和睡眠健康辅助研究。鼾声检测结果不能直接作为 OSA、低通气或其他疾病的临床诊断依据。如存在严重打鼾、呼吸暂停、白天嗜睡等症状，应咨询专业医生并接受规范检查。
+Do not place cloud API keys in the mobile app. Keep any optional local secret
+file out of version control. Firmware secrets belong only in the firmware
+checkout's ignored `main/secrets.h`.
