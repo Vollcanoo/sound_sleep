@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
 #include "esp_tls.h"
@@ -27,6 +28,74 @@ static const char *TAG = "CLOUD_LLM";
 
 /* ── 响应缓冲区大小 ────────────────────────────────── */
 #define MAX_RESPONSE_LEN  4096
+
+/* ── 清理 LLM 返回的 JSON 字符串 ──────────────────────
+ * 处理：markdown包裹、中文标点、尾部逗号等 */
+static char *sanitize_json_text(const char *input)
+{
+    if (!input || strlen(input) == 0) return NULL;
+
+    const char *p = input;
+    /* 跳过 markdown ```json 开头 */
+    if (strncmp(p, "```json", 7) == 0) p += 7;
+    else if (strncmp(p, "```", 3) == 0) p += 3;
+    while (*p == '\n' || *p == '\r' || *p == ' ') p++;
+
+    /* 找到第一个 { */
+    const char *start = strchr(p, '{');
+    if (!start) return NULL;
+
+    /* 找到最后一个 } (跳过 markdown ``` 结尾) */
+    const char *end = strrchr(p, '}');
+    if (!end || end <= start) return NULL;
+
+    int len = (int)(end - start + 1);
+    char *buf = malloc(len + 1);
+    if (!buf) return NULL;
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+
+    /* 替换中文标点 */
+    for (int i = 0; i < len - 2; i++) {
+        unsigned char c0 = (unsigned char)buf[i];
+        unsigned char c1 = (unsigned char)buf[i+1];
+        unsigned char c2 = (unsigned char)buf[i+2];
+        /* UTF-8 3-byte sequences for Chinese punctuation */
+        if (c0 == 0xEF && c1 == 0xBC) {
+            if (c2 == 0x8C) { /* ， (fullwidth comma) -> , */
+                buf[i] = ','; buf[i+1] = ' '; buf[i+2] = ' ';
+            } else if (c2 == 0x9A) { /* ： (fullwidth colon) -> : */
+                buf[i] = ':'; buf[i+1] = ' '; buf[i+2] = ' ';
+            }
+        }
+        if (c0 == 0xE3 && c1 == 0x80 && c2 == 0x82) { /* 。-> . */
+            buf[i] = '.'; buf[i+1] = ' '; buf[i+2] = ' ';
+        }
+    }
+
+    /* 移除多余空格 (compact in-place) */
+    int w = 0;
+    bool in_string = false;
+    for (int r = 0; r < len; r++) {
+        if (buf[r] == '"' && (r == 0 || buf[r-1] != '\\')) {
+            in_string = !in_string;
+        }
+        if (!in_string && buf[r] == ' ') continue;
+        buf[w++] = buf[r];
+    }
+    buf[w] = '\0';
+
+    /* 修复尾部逗号: ,] -> ] and ,} -> } */
+    for (int i = 0; i < w - 1; i++) {
+        if (buf[i] == ',' && (buf[i+1] == ']' || buf[i+1] == '}')) {
+            memmove(&buf[i], &buf[i+1], w - i);
+            w--;
+            i--;
+        }
+    }
+
+    return buf;
+}
 
 /* ── System Prompt ──────────────────────────────────── */
 static const char *SYSTEM_PROMPT =
@@ -193,29 +262,33 @@ static int parse_response_json(const char *response_body,
     cJSON *message = cJSON_GetObjectItem(first_choice, "message");
     cJSON *content = cJSON_GetObjectItem(message, "content");
 
-    if (!cJSON_IsString(content) || content->valuestring == NULL) {
-        ESP_LOGE(TAG, "响应 content 为空");
+    /* deepseek-v4-pro sometimes returns content="" with answer in reasoning_content */
+    const char *text = NULL;
+    if (cJSON_IsString(content) && content->valuestring && strlen(content->valuestring) > 0) {
+        text = content->valuestring;
+    } else {
+        cJSON *reasoning = cJSON_GetObjectItem(message, "reasoning_content");
+        if (cJSON_IsString(reasoning) && reasoning->valuestring) {
+            text = reasoning->valuestring;
+            ESP_LOGW(TAG, "content 为空，使用 reasoning_content");
+        }
+    }
+
+    if (!text) {
+        ESP_LOGE(TAG, "响应 content 和 reasoning_content 均为空");
         cJSON_Delete(root);
         return -2;
     }
 
-    ESP_LOGI(TAG, "LLM 原始回复: %s", content->valuestring);
+    ESP_LOGI(TAG, "LLM 原始回复: %.200s", text);
 
-    /* 解析 LLM 生成的 JSON */
-    cJSON *result = cJSON_Parse(content->valuestring);
+    /* 解析 LLM 生成的 JSON (sanitize handles markdown, Chinese punct, trailing commas) */
+    cJSON *result = cJSON_Parse(text);
     if (!result) {
-        ESP_LOGE(TAG, "LLM 内容 JSON 解析失败，尝试提取...");
-        const char *start = strchr(content->valuestring, '{');
-        const char *end   = strrchr(content->valuestring, '}');
-        if (start && end && end > start) {
-            int len = (int)(end - start + 1);
-            char *trimmed = malloc(len + 1);
-            if (trimmed) {
-                memcpy(trimmed, start, len);
-                trimmed[len] = '\0';
-                result = cJSON_Parse(trimmed);
-                free(trimmed);
-            }
+        char *sanitized = sanitize_json_text(text);
+        if (sanitized) {
+            result = cJSON_Parse(sanitized);
+            free(sanitized);
         }
         if (!result) {
             ESP_LOGE(TAG, "无法提取有效 JSON");
@@ -506,9 +579,26 @@ int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
                 if (cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0) {
                     cJSON *msg = cJSON_GetObjectItem(
                         cJSON_GetArrayItem(choices, 0), "message");
-                    cJSON *content = cJSON_GetObjectItem(msg, "content");
-                    if (cJSON_IsString(content)) {
-                        cJSON *inner = cJSON_Parse(content->valuestring);
+                    cJSON *content_j = cJSON_GetObjectItem(msg, "content");
+                    const char *text = NULL;
+                    if (cJSON_IsString(content_j) && content_j->valuestring
+                        && strlen(content_j->valuestring) > 0) {
+                        text = content_j->valuestring;
+                    } else {
+                        cJSON *reasoning = cJSON_GetObjectItem(msg, "reasoning_content");
+                        if (cJSON_IsString(reasoning) && reasoning->valuestring) {
+                            text = reasoning->valuestring;
+                        }
+                    }
+                    if (text) {
+                        cJSON *inner = cJSON_Parse(text);
+                        if (!inner) {
+                            char *sanitized = sanitize_json_text(text);
+                            if (sanitized) {
+                                inner = cJSON_Parse(sanitized);
+                                free(sanitized);
+                            }
+                        }
                         if (inner) {
                             cJSON *report = cJSON_GetObjectItem(inner, "report");
                             if (cJSON_IsString(report)) {
@@ -522,9 +612,8 @@ int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
                             }
                             cJSON_Delete(inner);
                         }
-                        if (result != 0) {
-                            snprintf(report_out, report_size, "%s",
-                                     content->valuestring);
+                        if (result != 0 && text) {
+                            snprintf(report_out, report_size, "%s", text);
                             result = 0;
                         }
                     }
@@ -645,26 +734,32 @@ static int parse_window_response_json(const char *response_body,
 
     cJSON *message = cJSON_GetObjectItem(cJSON_GetArrayItem(choices, 0), "message");
     cJSON *content = cJSON_GetObjectItem(message, "content");
-    if (!cJSON_IsString(content) || content->valuestring == NULL) {
+
+    /* deepseek-v4-pro sometimes returns content="" with answer in reasoning_content */
+    const char *text = NULL;
+    if (cJSON_IsString(content) && content->valuestring && strlen(content->valuestring) > 0) {
+        text = content->valuestring;
+    } else {
+        cJSON *reasoning = cJSON_GetObjectItem(message, "reasoning_content");
+        if (cJSON_IsString(reasoning) && reasoning->valuestring) {
+            text = reasoning->valuestring;
+            ESP_LOGW(TAG, "Window content 为空，使用 reasoning_content");
+        }
+    }
+
+    if (!text) {
         cJSON_Delete(root);
         return -2;
     }
 
-    ESP_LOGI(TAG, "Window LLM 回复: %s", content->valuestring);
+    ESP_LOGI(TAG, "Window LLM 回复: %.200s", text);
 
-    cJSON *result = cJSON_Parse(content->valuestring);
+    cJSON *result = cJSON_Parse(text);
     if (!result) {
-        const char *start = strchr(content->valuestring, '{');
-        const char *end   = strrchr(content->valuestring, '}');
-        if (start && end && end > start) {
-            int len = (int)(end - start + 1);
-            char *trimmed = malloc(len + 1);
-            if (trimmed) {
-                memcpy(trimmed, start, len);
-                trimmed[len] = '\0';
-                result = cJSON_Parse(trimmed);
-                free(trimmed);
-            }
+        char *sanitized = sanitize_json_text(text);
+        if (sanitized) {
+            result = cJSON_Parse(sanitized);
+            free(sanitized);
         }
         if (!result) {
             cJSON_Delete(root);
