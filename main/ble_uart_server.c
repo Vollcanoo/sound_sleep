@@ -30,6 +30,7 @@
 #include "posture_sensor.h"
 #include "wifi_provision.h"
 #include "wifi_manager.h"
+#include "pump_controller.h"
 #include "freertos/semphr.h"
 
 static volatile bool s_wifi_connecting = false;
@@ -115,8 +116,9 @@ static int nus_rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"monitor_stopped\"}";
                 monitor_control_set_manual(false);
                 llm_periodic_reset();
+                pump_controller_stop_all();
                 send_json_line(reply);
-                ESP_LOGI(TAG, "Manual monitoring disabled by BLE");
+                ESP_LOGI(TAG, "Manual monitoring disabled by BLE, pump stopped");
             } else if (strcmp(buf, "wifi_clear") == 0) {
                 wifi_provision_clear_credentials();
                 const char *reply = "{\"status\":\"ok\",\"msg\":\"wifi_cleared\"}";

@@ -32,8 +32,12 @@
 
 static const char *TAG = "PUMP";
 
-
 /* GPIO 有效电平定义见 pump_controller.h */
+
+/* 硬件安全上限：任何单次命令最多运行 60 秒 */
+#define PUMP_MAX_DURATION_SEC  60
+/* 放气最短时间，避免 duration=0 导致阀门开关无效 */
+#define DEFLATE_MIN_DURATION_SEC  2
 
 
 
@@ -54,26 +58,30 @@ void pump_controller_init(void)
     gpio_set_level(GPIO_VALVE_LEFT, VALVE_CLOSE_LEVEL);
     gpio_set_level(GPIO_VALVE_RIGHT, VALVE_CLOSE_LEVEL);
 
-    gpio_config_t io_conf = {
-
+    /* 气泵引脚: pull-up 确保硬复位期间 GPIO 不浮空到 LOW (= 泵启动)。
+     * 泄气阀引脚: 浮空 LOW = 阀关闭，安全，无需 pull。 */
+    gpio_config_t pump_conf = {
         .pin_bit_mask =
-            (1ULL << GPIO_PUMP_LEFT)   |
-            (1ULL << GPIO_PUMP_RIGHT)  |
-            (1ULL << GPIO_VALVE_LEFT)  |
-            (1ULL << GPIO_VALVE_RIGHT),
-
+            (1ULL << GPIO_PUMP_LEFT) |
+            (1ULL << GPIO_PUMP_RIGHT),
         .mode = GPIO_MODE_OUTPUT,
-
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-
+        .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-
         .intr_type = GPIO_INTR_DISABLE,
-
     };
 
+    gpio_config_t valve_conf = {
+        .pin_bit_mask =
+            (1ULL << GPIO_VALVE_LEFT) |
+            (1ULL << GPIO_VALVE_RIGHT),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
 
-    ESP_ERROR_CHECK(gpio_config(&io_conf));
+    ESP_ERROR_CHECK(gpio_config(&pump_conf));
+    ESP_ERROR_CHECK(gpio_config(&valve_conf));
 
 
 
@@ -114,17 +122,15 @@ static void inflate_side(
         int intensity,
         int duration_sec)
 {
-
-    /*
-     * 安全:
-     * 关闭泄气阀
-     */
+    if (duration_sec > PUMP_MAX_DURATION_SEC) {
+        ESP_LOGW(TAG, "充气时长 %ds 超限，截断为 %ds", duration_sec, PUMP_MAX_DURATION_SEC);
+        duration_sec = PUMP_MAX_DURATION_SEC;
+    }
 
     gpio_set_level(
         valve_gpio,
         VALVE_CLOSE_LEVEL
     );
-
 
     ESP_LOGI(TAG,
              "充气: %s侧 强度=%d%% 持续=%ds",
@@ -190,18 +196,18 @@ static void deflate_side(
         const char *side_name,
         int duration_sec)
 {
-
-    /*
-     * 安全:
-     * 关闭气泵
-     */
+    if (duration_sec < DEFLATE_MIN_DURATION_SEC) {
+        duration_sec = DEFLATE_MIN_DURATION_SEC;
+    }
+    if (duration_sec > PUMP_MAX_DURATION_SEC) {
+        ESP_LOGW(TAG, "放气时长 %ds 超限，截断为 %ds", duration_sec, PUMP_MAX_DURATION_SEC);
+        duration_sec = PUMP_MAX_DURATION_SEC;
+    }
 
     gpio_set_level(
         pump_gpio,
         PUMP_OFF_LEVEL
     );
-
-
 
     ESP_LOGI(TAG,
              "放气: %s侧 持续=%ds",
@@ -253,7 +259,6 @@ static void deflate_side(
 void pump_execute_command(
         const pump_command_t *cmd)
 {
-
 
     if(strcmp(cmd->action,"hold")==0)
     {
@@ -343,6 +348,8 @@ void pump_execute_command(
 
             int actual_ms = cmd->duration_sec * 1000;
 
+            if (actual_ms > PUMP_MAX_DURATION_SEC * 1000)
+                actual_ms = PUMP_MAX_DURATION_SEC * 1000;
 
             if (actual_ms < 1000)
                 actual_ms = 1000;
@@ -370,6 +377,11 @@ void pump_execute_command(
             ESP_LOGI(TAG,
                      "双侧充气完成");
 
+        }
+
+        else
+        {
+            ESP_LOGW(TAG, "充气: 未知 zone '%s'，忽略", cmd->zone);
         }
 
     }
@@ -436,6 +448,12 @@ void pump_execute_command(
             );
 
 
+            int deflate_sec = cmd->duration_sec;
+            if (deflate_sec < DEFLATE_MIN_DURATION_SEC)
+                deflate_sec = DEFLATE_MIN_DURATION_SEC;
+            if (deflate_sec > PUMP_MAX_DURATION_SEC)
+                deflate_sec = PUMP_MAX_DURATION_SEC;
+
             gpio_set_level(
                 GPIO_VALVE_LEFT,
                 VALVE_OPEN_LEVEL
@@ -451,7 +469,7 @@ void pump_execute_command(
 
             vTaskDelay(
                 pdMS_TO_TICKS(
-                    cmd->duration_sec * 1000
+                    deflate_sec * 1000
                 )
             );
 
@@ -472,6 +490,11 @@ void pump_execute_command(
             ESP_LOGI(TAG,
                      "双侧放气完成");
 
+        }
+
+        else
+        {
+            ESP_LOGW(TAG, "放气: 未知 zone '%s'，忽略", cmd->zone);
         }
 
 
