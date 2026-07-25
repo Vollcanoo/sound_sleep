@@ -87,8 +87,11 @@ class RealtimeProvider extends ChangeNotifier {
     }
 
     // 同步当前 pump mode 到 ESP32，防止重启后状态不一致
+    await Future.delayed(const Duration(milliseconds: 100));
     final modeCmd = _pumpMode == PumpMode.llm ? 'pump_mode_llm' : 'pump_mode_local';
-    await _bleService.sendCommand(modeCmd);
+    if (!await _bleService.sendCommand(modeCmd)) {
+      debugPrint('pump mode 同步失败，ESP32 将使用默认模式');
+    }
 
     _beginMonitoringSession();
     return true;
