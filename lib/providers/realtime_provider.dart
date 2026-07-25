@@ -101,6 +101,7 @@ class RealtimeProvider extends ChangeNotifier {
     _isMonitoring = true;
     _monitoringStart = DateTime.now();
     _sessionReadings.clear();
+    _sessionSnoreReadings.clear();
 
     _readingSubscription = _bleService.readingStream.listen((reading) {
       _currentReading = reading;
