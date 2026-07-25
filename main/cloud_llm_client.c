@@ -442,9 +442,12 @@ static char *build_summary_request_json(const sleep_session_summary_t *summary)
 }
 
 int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
-                              char *report_out, size_t report_size)
+                              char *report_out, size_t report_size,
+                              char **suggestions_out)
 {
     if (!summary || !report_out || report_size == 0) return -1;
+
+    if (suggestions_out) *suggestions_out = NULL;
 
     if (strlen(VOLCENGINE_API_KEY) == 0 ||
         strcmp(VOLCENGINE_API_KEY, "your-volcengine-api-key-here") == 0) {
@@ -512,6 +515,10 @@ int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
                                 snprintf(report_out, report_size, "%s",
                                          report->valuestring);
                                 result = 0;
+                            }
+                            cJSON *sugg = cJSON_GetObjectItem(inner, "suggestions");
+                            if (suggestions_out && cJSON_IsArray(sugg)) {
+                                *suggestions_out = cJSON_PrintUnformatted(sugg);
                             }
                             cJSON_Delete(inner);
                         }

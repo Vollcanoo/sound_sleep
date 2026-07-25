@@ -17,6 +17,7 @@
  *   5. pressure_segments (压力片段)
  */
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
 #include "esp_log.h"
@@ -406,7 +407,8 @@ static int upload_sleep_record(const sleep_session_summary_t *summary,
  *  Step 2: 插入 ai_analyses
  * ──────────────────────────────────────────────────── */
 static int upload_ai_analysis(int record_id, const char *ai_report,
-                              const sleep_session_summary_t *summary)
+                              const sleep_session_summary_t *summary,
+                              const char *llm_suggestions)
 {
     if (!ai_report || ai_report[0] == '\0') {
         ESP_LOGI(TAG, "无 AI 报告，跳过 ai_analyses");
@@ -425,47 +427,94 @@ static int upload_ai_analysis(int record_id, const char *ai_report,
                  "2026-01-01T00:00:00Z");
     }
 
-    cJSON *suggestions = cJSON_CreateArray();
-    if (summary->snore_minutes_per_hour >= 2.0f) {
-        cJSON_AddItemToArray(suggestions,
-            cJSON_CreateString("鼾声较频繁，建议侧卧睡眠以减轻气道阻塞"));
+    /* ── suggestions: 优先使用 LLM 返回的，fallback 到规则生成 ── */
+    char *suggestions_str = NULL;
+    if (llm_suggestions && llm_suggestions[0] == '[') {
+        suggestions_str = strdup(llm_suggestions);
     }
-    if (summary->dominant_posture == POSTURE_SUPINE &&
-        summary->total_snore_minutes > 5.0f) {
-        cJSON_AddItemToArray(suggestions,
-            cJSON_CreateString("仰卧时间较长且有鼾声，尝试调整为侧卧位"));
+    if (!suggestions_str) {
+        cJSON *suggestions = cJSON_CreateArray();
+        if (summary->snore_minutes_per_hour >= 2.0f) {
+            cJSON_AddItemToArray(suggestions,
+                cJSON_CreateString("鼾声较频繁，建议侧卧睡眠以减轻气道阻塞"));
+        }
+        if (summary->dominant_posture == POSTURE_SUPINE &&
+            summary->total_snore_minutes > 5.0f) {
+            cJSON_AddItemToArray(suggestions,
+                cJSON_CreateString("仰卧时间较长且有鼾声，尝试调整为侧卧位"));
+        }
+        if (summary->get_up_count > 2) {
+            cJSON_AddItemToArray(suggestions,
+                cJSON_CreateString("夜间起身较多，睡前减少饮水可改善连续性"));
+        }
+        if (summary->posture_change_count > 20) {
+            cJSON_AddItemToArray(suggestions,
+                cJSON_CreateString("翻身频繁，检查卧室温度和床垫舒适度"));
+        }
+        if (summary->duration_minutes < 420) {
+            cJSON_AddItemToArray(suggestions,
+                cJSON_CreateString("睡眠不足7小时，建议提前入睡保证充足休息"));
+        }
+        if (cJSON_GetArraySize(suggestions) == 0) {
+            cJSON_AddItemToArray(suggestions,
+                cJSON_CreateString("保持良好作息习惯，坚持规律的睡眠时间"));
+        }
+        char *tmp = cJSON_PrintUnformatted(suggestions);
+        cJSON_Delete(suggestions);
+        if (tmp) {
+            suggestions_str = strdup(tmp);
+            cJSON_free(tmp);
+        }
     }
-    if (summary->get_up_count > 2) {
-        cJSON_AddItemToArray(suggestions,
-            cJSON_CreateString("夜间起身较多，睡前减少饮水可改善连续性"));
+
+    /* ── insights: 从传感器数据生成分析要点 ── */
+    cJSON *insights = cJSON_CreateArray();
+    {
+        float hours = summary->duration_minutes / 60.0f;
+        char buf[128];
+        if (hours >= 7.0f && hours <= 9.0f) {
+            snprintf(buf, sizeof(buf), "睡眠时长%.1f小时，处于推荐范围", hours);
+        } else if (hours < 7.0f) {
+            snprintf(buf, sizeof(buf), "睡眠时长仅%.1f小时，低于推荐的7小时", hours);
+        } else {
+            snprintf(buf, sizeof(buf), "睡眠时长%.1f小时，超过9小时建议范围", hours);
+        }
+        cJSON_AddItemToArray(insights, cJSON_CreateString(buf));
+
+        if (summary->total_snore_minutes > 0.1f) {
+            snprintf(buf, sizeof(buf), "检测到鼾声共%.1f分钟，每小时%.1f分钟",
+                     summary->total_snore_minutes, summary->snore_minutes_per_hour);
+            cJSON_AddItemToArray(insights, cJSON_CreateString(buf));
+        }
+
+        snprintf(buf, sizeof(buf), "主要睡姿为%s，翻身%d次",
+                 posture_name_cn(summary->dominant_posture),
+                 summary->posture_change_count);
+        cJSON_AddItemToArray(insights, cJSON_CreateString(buf));
+
+        if (summary->get_up_count > 0) {
+            snprintf(buf, sizeof(buf), "夜间起身%d次", summary->get_up_count);
+            cJSON_AddItemToArray(insights, cJSON_CreateString(buf));
+        }
     }
-    if (summary->posture_change_count > 20) {
-        cJSON_AddItemToArray(suggestions,
-            cJSON_CreateString("翻身频繁，检查卧室温度和床垫舒适度"));
-    }
-    if (summary->duration_minutes < 420) {
-        cJSON_AddItemToArray(suggestions,
-            cJSON_CreateString("睡眠不足7小时，建议提前入睡保证充足休息"));
-    }
-    if (cJSON_GetArraySize(suggestions) == 0) {
-        cJSON_AddItemToArray(suggestions,
-            cJSON_CreateString("保持良好作息习惯，坚持规律的睡眠时间"));
-    }
-    char *suggestions_str = cJSON_PrintUnformatted(suggestions);
-    cJSON_Delete(suggestions);
+    char *insights_str = cJSON_PrintUnformatted(insights);
+    cJSON_Delete(insights);
 
     cJSON *body = cJSON_CreateObject();
     if (!body) {
-        if (suggestions_str) cJSON_free(suggestions_str);
+        if (suggestions_str) free(suggestions_str);
+        if (insights_str) cJSON_free(insights_str);
         return -3;
     }
 
     cJSON_AddNumberToObject(body, "record_id",   record_id);
     cJSON_AddStringToObject(body, "summary",     ai_report);
+    cJSON_AddStringToObject(body, "insights",    insights_str ? insights_str : "[]");
     cJSON_AddStringToObject(body, "suggestions", suggestions_str ? suggestions_str : "[]");
     cJSON_AddStringToObject(body, "created_at",  created_at_str);
 
-    if (suggestions_str) cJSON_free(suggestions_str);
+    if (suggestions_str) free(suggestions_str);
+    if (insights_str) cJSON_free(insights_str);
 
     char *json_str = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
@@ -499,11 +548,11 @@ static int upload_snoring_event(int record_id,
     format_iso_time(summary->wake_time_ms, summary->bed_time_ms,
                     end_str, sizeof(end_str));
 
-    /* 使用真实 RMS 分贝值（来自 INMP441 麦克风）
-     * 如果 max_rms_db 为 0（旧固件未采集），fallback 到概率估算 */
+    /* 使用鼾声帧平均 RMS 分贝值（来自 INMP441 麦克风）
+     * 如果 mean_rms_db 为 0（旧固件未采集），fallback 到概率估算 */
     float avg_decibel;
-    if (summary->max_rms_db > 0.0f) {
-        avg_decibel = summary->max_rms_db;
+    if (summary->mean_rms_db > 0.0f) {
+        avg_decibel = summary->mean_rms_db;
     } else {
         float clamped_prob = summary->mean_snore_probability;
         if (clamped_prob < 0.5f) clamped_prob = 0.5f;
@@ -611,17 +660,16 @@ static int upload_posture_segment(int record_id,
 /* ────────────────────────────────────────────────────
  *  Step 5: pressure_segments — 压力片段
  *
- *  将整段睡眠作为一个 pressure segment（中等压力）上传，
- *  与 Flutter cloud_sync_service.dart 的 _uploadPressureSegments 对齐。
+ *  根据起身事件拆分为多个在床片段。
+ *  如果无起身事件，上传整晚作为一个 segment。
  * ──────────────────────────────────────────────────── */
-static int upload_pressure_segment(int record_id,
-                                   const sleep_session_summary_t *summary)
+static int upload_one_pressure_segment(int record_id,
+                                       int64_t start_ms, int64_t end_ms,
+                                       int64_t base_ms)
 {
     char start_str[32], end_str[32];
-    format_iso_time(summary->bed_time_ms, summary->bed_time_ms,
-                    start_str, sizeof(start_str));
-    format_iso_time(summary->wake_time_ms, summary->bed_time_ms,
-                    end_str, sizeof(end_str));
+    format_iso_time(start_ms, base_ms, start_str, sizeof(start_str));
+    format_iso_time(end_ms,   base_ms, end_str,   sizeof(end_str));
 
     cJSON *body = cJSON_CreateObject();
     if (!body) return -3;
@@ -639,18 +687,52 @@ static int upload_pressure_segment(int record_id,
     ESP_LOGI(TAG, "pressure_segments JSON: %s", json_str);
     int ret = cloudbase_post("pressure_segments", json_str, NULL, 0);
     cJSON_free(json_str);
-
-    if (ret != 0) {
-        ESP_LOGE(TAG, "pressure_segments 插入失败");
-    }
     return ret;
+}
+
+static int upload_pressure_segment(int record_id,
+                                   const sleep_session_summary_t *summary)
+{
+    int overall_ret = 0;
+
+    if (summary->get_up_event_count == 0) {
+        return upload_one_pressure_segment(
+            record_id, summary->bed_time_ms, summary->wake_time_ms,
+            summary->bed_time_ms);
+    }
+
+    int64_t seg_start = summary->bed_time_ms;
+    for (int i = 0; i < summary->get_up_event_count; i++) {
+        int64_t leave = summary->get_up_events[i].leave_ms;
+        int64_t ret_ms = summary->get_up_events[i].return_ms;
+        if (leave <= seg_start) continue;
+
+        int ret = upload_one_pressure_segment(
+            record_id, seg_start, leave, summary->bed_time_ms);
+        if (ret != 0 && overall_ret == 0) overall_ret = ret;
+
+        seg_start = ret_ms;
+    }
+
+    if (seg_start < summary->wake_time_ms) {
+        int ret = upload_one_pressure_segment(
+            record_id, seg_start, summary->wake_time_ms,
+            summary->bed_time_ms);
+        if (ret != 0 && overall_ret == 0) overall_ret = ret;
+    }
+
+    if (overall_ret != 0) {
+        ESP_LOGE(TAG, "pressure_segments 部分插入失败");
+    }
+    return overall_ret;
 }
 
 /* ════════════════════════════════════════════════════
  *  公开接口: cloud_upload_sleep_record()
  * ════════════════════════════════════════════════════ */
 int cloud_upload_sleep_record(const sleep_session_summary_t *summary,
-                              const char *ai_report)
+                              const char *ai_report,
+                              const char *llm_suggestions)
 {
     if (!summary) {
         ESP_LOGE(TAG, "summary 为 NULL");
@@ -679,7 +761,7 @@ int cloud_upload_sleep_record(const sleep_session_summary_t *summary,
     ESP_LOGI(TAG, "✓ sleep_records 上传成功, record_id=%d", record_id);
 
     /* Step 2: 插入 ai_analyses */
-    ret = upload_ai_analysis(record_id, ai_report, summary);
+    ret = upload_ai_analysis(record_id, ai_report, summary, llm_suggestions);
     if (ret != 0) {
         ESP_LOGW(TAG, "✗ ai_analyses 上传失败，继续...");
         overall_result = ret;

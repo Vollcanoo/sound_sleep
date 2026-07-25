@@ -25,6 +25,7 @@
  *   GPIO16/15/17 - INMP441 I2S 麦克风 (Snore_Det)
  */
 #include <string.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -37,6 +38,7 @@
 #include "wifi_provision.h"
 #include "cloud_llm_client.h"
 #include "cloud_upload.h"
+#include "cJSON.h"
 #include "pump_controller.h"
 #include "pump_rules.h"
 #include "ble_uart_server.h"
@@ -83,12 +85,25 @@ static void cloud_task(void *arg)
     while (1) {
         if (xQueueReceive(g_feature_queue, &feat, portMAX_DELAY) == pdTRUE) {
 
-            /* LLM 模式：喂 LLM 周期模块 */
+            /* ── 气泵控制（两种模式下均运行）──────── */
             if (monitor_control_get_pump_mode() == PUMP_MODE_LLM) {
                 llm_periodic_on_frame(&feat);
+            } else {
+                const int64_t local_now_ms = esp_timer_get_time() / 1000;
+                if (local_now_ms >= s_local_rule_next_allowed_ms) {
+                    memset(&cmd, 0, sizeof(cmd));
+                    pump_evaluate_local_rule(&feat, &cmd);
+                    if (strcmp(cmd.action, "hold") != 0) {
+                        ESP_LOGI(TAG, "🎮 气泵指令(local): %s %s (强度%d%%, %ds)",
+                                 cmd.action, cmd.zone, cmd.intensity, cmd.duration_sec);
+                        if (xQueueSend(s_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                            s_local_rule_next_allowed_ms = local_now_ms + LOCAL_RULE_COOLDOWN_MS;
+                        }
+                    }
+                }
             }
 
-            /* 自动模式 gate：手动模式开启时暂停 session */
+            /* ── 自动模式：睡眠会话管理 ──────────── */
             if (!monitor_control_auto_enabled()) {
                 if (auto_was_active) {
                     session_reset();
@@ -111,29 +126,7 @@ static void cloud_task(void *arg)
             /* ── 1. 累积到睡眠会话 ───────────────── */
             session_on_data(&feat);
 
-            /* ── 2. 实时气泵控制 ── */
-            const int64_t local_now_ms = esp_timer_get_time() / 1000;
-            memset(&cmd, 0, sizeof(cmd));
-            if ((monitor_control_get_pump_mode() == PUMP_MODE_LOCAL ||
-                 !llm_periodic_override_active()) &&
-                local_now_ms >= s_local_rule_next_allowed_ms) {
-                pump_evaluate_local_rule(&feat, &cmd);
-
-                if (strcmp(cmd.action, "hold") != 0) {
-                    ESP_LOGI(TAG, "🎮 气泵指令: %s %s (强度%d%%, %ds)",
-                             cmd.action, cmd.zone, cmd.intensity, cmd.duration_sec);
-                    const int64_t now_ms = esp_timer_get_time() / 1000;
-                    if (now_ms < s_local_rule_next_allowed_ms) {
-                        ESP_LOGI(TAG, "Local rule command suppressed during cooldown");
-                    } else if (xQueueSend(s_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) != pdTRUE) {
-                        ESP_LOGW(TAG, "气泵指令队列已满，丢弃本次指令");
-                    } else {
-                        s_local_rule_next_allowed_ms = now_ms + LOCAL_RULE_COOLDOWN_MS;
-                    }
-                }
-            }
-
-            /* ── 3. 检查睡眠是否结束 ─────────────── */
+            /* ── 2. 检查睡眠是否结束 ─────────────── */
             if (session_is_ended()) {
                 ESP_LOGI(TAG, "═══════════════════════════════════════");
                 ESP_LOGI(TAG, "💤 睡眠会话结束！开始生成分析报告...");
@@ -157,8 +150,10 @@ static void cloud_task(void *arg)
 
                 /* ── 调用 LLM 生成整晚分析报告 ──── */
                 char report[512] = {0};
+                char *llm_suggestions = NULL;
                 int ret = cloud_llm_analyze_summary(&summary,
-                                                    report, sizeof(report));
+                                                    report, sizeof(report),
+                                                    &llm_suggestions);
                 if (ret == 0) {
                     ESP_LOGI(TAG, "📋 AI 分析报告: %s", report);
                 } else {
@@ -173,12 +168,14 @@ static void cloud_task(void *arg)
 
                 /* ── 上传到 CloudBase ─────────── */
                 ESP_LOGI(TAG, "☁️  上传睡眠数据到云端...");
-                int upload_ret = cloud_upload_sleep_record(&summary, report);
+                int upload_ret = cloud_upload_sleep_record(&summary, report,
+                                                           llm_suggestions);
                 if (upload_ret == 0) {
                     ESP_LOGI(TAG, "✅ 云端上传成功");
                 } else {
                     ESP_LOGE(TAG, "❌ 云端上传失败 (err=%d)", upload_ret);
                 }
+                if (llm_suggestions) cJSON_free(llm_suggestions);
 
                 ESP_LOGI(TAG, "═══════════════════════════════════════");
 

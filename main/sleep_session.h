@@ -23,6 +23,7 @@
 #define SESSION_GET_UP_TIMEOUT_MS   (15 * 1000)
 #define SESSION_END_TIMEOUT_MS      (15 * 60 * 1000)
 #define SESSION_MIN_REPORT_MS       (15 * 60 * 1000)
+#define MAX_GET_UP_EVENTS           16
 
 /**
  * 睡眠会话汇总数据 — 用于 LLM prompt 和云端上传
@@ -41,6 +42,7 @@ typedef struct {
     int      snore_event_count;     /* 鼾声事件次数 */
     float    snore_minutes_per_hour;/* 每小时鼾声分钟数 */
     float    max_rms_db;            /* 最大 RMS 分贝值 (dB SPL) */
+    float    mean_rms_db;           /* 鼾声帧平均 RMS 分贝值 */
 
     /* 姿态分布 */
     int      posture_seconds[POSTURE_COUNT]; /* Seconds per supported posture */
@@ -49,6 +51,13 @@ typedef struct {
 
     /* 最后一次采样的原始特征（参考用）*/
     snore_features_t last_features;
+
+    /* 起身事件（离床/回床时间对），用于 pressure_segments 上传 */
+    int      get_up_event_count;
+    struct {
+        int64_t leave_ms;
+        int64_t return_ms;
+    } get_up_events[MAX_GET_UP_EVENTS];
 } sleep_session_summary_t;
 
 /**

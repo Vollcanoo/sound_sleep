@@ -46,6 +46,9 @@ static int      s_sample_count;
 static int      s_snore_event_count;
 /** 最大 RMS 分贝值 */
 static float    s_max_rms_db;
+/** 鼾声帧 RMS 分贝累加值和计数 */
+static double   s_sum_rms_db;
+static int      s_rms_db_count;
 
 /* ── 姿态累积 ────────────────────────────────────────── */
 
@@ -60,6 +63,12 @@ static bool     s_has_last_posture;
 
 /** 最后一帧特征数据 */
 static snore_features_t s_last_features;
+
+/** 起身事件记录 */
+static struct {
+    int64_t leave_ms;
+    int64_t return_ms;
+} s_get_up_events[MAX_GET_UP_EVENTS];
 
 /* ── 辅助函数 ────────────────────────────────────────── */
 
@@ -173,6 +182,11 @@ void session_on_data(const snore_features_t *feat)
         const int64_t absence_ms = now - s_pressure_lost_ms;
         if (absence_ms >= SESSION_GET_UP_TIMEOUT_MS) {
             s_get_up_count++;
+            if (s_get_up_count <= MAX_GET_UP_EVENTS) {
+                int idx = s_get_up_count - 1;
+                s_get_up_events[idx].leave_ms  = s_pressure_lost_ms;
+                s_get_up_events[idx].return_ms = now;
+            }
         }
         s_pressure_present = true;
         s_pressure_lost_ms = 0;
@@ -217,6 +231,10 @@ void session_on_data(const snore_features_t *feat)
     if (feat->max_rms_db > s_max_rms_db) {
         s_max_rms_db = feat->max_rms_db;
     }
+    if (feat->snore_detected && feat->latest_rms_db > 0.0f) {
+        s_sum_rms_db += feat->latest_rms_db;
+        s_rms_db_count++;
+    }
 }
 
 bool session_is_ended(void)
@@ -256,6 +274,9 @@ sleep_session_summary_t session_get_summary(void)
         : 0.0f;
     summary.snore_event_count = s_snore_event_count;
     summary.max_rms_db = s_max_rms_db;
+    summary.mean_rms_db = (s_rms_db_count > 0)
+        ? (float)(s_sum_rms_db / s_rms_db_count)
+        : 0.0f;
 
     float duration_hours = summary.duration_minutes / 60.0f;
     summary.snore_minutes_per_hour = (duration_hours > 0.0f)
@@ -278,6 +299,15 @@ sleep_session_summary_t session_get_summary(void)
 
     /* 最后一帧 */
     summary.last_features = s_last_features;
+
+    /* 起身事件 */
+    int event_count = s_get_up_count < MAX_GET_UP_EVENTS
+                    ? s_get_up_count : MAX_GET_UP_EVENTS;
+    summary.get_up_event_count = event_count;
+    for (int i = 0; i < event_count; i++) {
+        summary.get_up_events[i].leave_ms  = s_get_up_events[i].leave_ms;
+        summary.get_up_events[i].return_ms = s_get_up_events[i].return_ms;
+    }
 
     /* 睡眠评分 */
     summary.sleep_score = compute_sleep_score(&summary);
@@ -303,6 +333,8 @@ void session_reset(void)
     s_sample_count        = 0;
     s_snore_event_count   = 0;
     s_max_rms_db          = 0.0f;
+    s_sum_rms_db          = 0.0;
+    s_rms_db_count        = 0;
 
     memset(s_posture_seconds, 0, sizeof(s_posture_seconds));
     s_posture_change_count = 0;
@@ -310,6 +342,7 @@ void session_reset(void)
     s_has_last_posture     = false;
 
     memset(&s_last_features, 0, sizeof(s_last_features));
+    memset(s_get_up_events, 0, sizeof(s_get_up_events));
 
     ESP_LOGI(TAG, "Session reset");
 }

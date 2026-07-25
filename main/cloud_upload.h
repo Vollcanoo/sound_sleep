@@ -57,12 +57,14 @@
  *
  * 函数为非阻塞设计: 任何一步失败仅 ESP_LOGE 记录，不会 crash。
  *
- * @param summary    睡眠会话汇总数据 (来自 sleep_session.h)
- * @param ai_report  AI 分析报告文本 (来自 LLM), 可为 NULL
+ * @param summary         睡眠会话汇总数据 (来自 sleep_session.h)
+ * @param ai_report       AI 分析报告文本 (来自 LLM), 可为 NULL
+ * @param llm_suggestions LLM 返回的建议 JSON 数组字符串, 可为 NULL
  *
  * @return  0 = 全部成功, -1 = 网络错误, -2 = 解析错误, -3 = 内存不足
  */
 int cloud_upload_sleep_record(const sleep_session_summary_t *summary,
-                              const char *ai_report);
+                              const char *ai_report,
+                              const char *llm_suggestions);
 
 #endif /* CLOUD_UPLOAD_H */
