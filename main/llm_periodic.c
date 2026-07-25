@@ -84,6 +84,12 @@ void llm_periodic_on_frame(const snore_features_t *feat)
 
     /* 累积统计 */
     s_stats.frame_count++;
+
+    if (s_stats.frame_count % 60 == 0) {
+        ESP_LOGI(TAG, "LLM 窗口进度: %d/%d 帧 (%.0f%%)",
+                 s_stats.frame_count, LLM_WINDOW_FRAMES,
+                 100.0f * s_stats.frame_count / LLM_WINDOW_FRAMES);
+    }
     s_stats.sum_mean_prob += feat->mean_probability;
     if (feat->max_probability > s_stats.max_prob) {
         s_stats.max_prob = feat->max_probability;
