@@ -13,7 +13,7 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final user = auth.user;
-    final sleepProvider = context.read<SleepProvider>();
+    final sleepProvider = context.watch<SleepProvider>();
     final records = sleepProvider.records;
     final avgScore = records.isEmpty
         ? 0
@@ -177,6 +177,7 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   );
                   if (confirm == true && context.mounted) {
+                    context.read<SleepProvider>().setCurrentUser(null);
                     await auth.logout();
                     if (context.mounted) context.go('/login');
                   }

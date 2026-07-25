@@ -251,7 +251,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     // 监测内容区域
                     Padding(
                       padding: const EdgeInsets.all(20),
-                      child: realtimeProvider.isMonitoring
+                      child: realtimeProvider.isGeneratingReport
+                          ? Column(
+                              children: [
+                                const SizedBox(height: 24),
+                                const CircularProgressIndicator(),
+                                const SizedBox(height: 16),
+                                const Text(
+                                  '正在生成 AI 分析报告...',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '请稍候，正在分析您的睡眠数据',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                                const SizedBox(height: 24),
+                              ],
+                            )
+                          : realtimeProvider.isMonitoring
                           ? Column(
                               children: [
                                 // 当前姿态 + 压力值

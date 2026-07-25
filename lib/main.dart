@@ -37,6 +37,7 @@ class AppBootstrap extends StatelessWidget {
     final cloudSyncService = CloudSyncService();
 
     sleepService.setCloudSync(cloudSyncService);
+    sleepService.setCurrentUser(authService.currentUser?.id);
 
     return MultiProvider(
       providers: [

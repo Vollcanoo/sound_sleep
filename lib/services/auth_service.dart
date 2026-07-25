@@ -1,12 +1,15 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
+import '../config/cloudbase_config.dart';
+import 'cloudbase_db.dart';
 
 class AuthService {
-  static const _usersKey = 'auth_users';
   static const _currentUserKey = 'auth_current_user';
 
-  final Map<String, _UserEntry> _users = {};
+  final CloudBaseDB _db = CloudBaseDB();
   User? _currentUser;
   late final SharedPreferences _prefs;
 
@@ -15,22 +18,7 @@ class AuthService {
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
-    _loadUsers();
     _loadCurrentUser();
-  }
-
-  void _loadUsers() {
-    final raw = _prefs.getString(_usersKey);
-    if (raw != null) {
-      final Map<String, dynamic> map = jsonDecode(raw);
-      for (final entry in map.entries) {
-        final data = entry.value as Map<String, dynamic>;
-        _users[entry.key] = _UserEntry(
-          password: data['password'] as String,
-          user: User.fromJson(data['user'] as Map<String, dynamic>),
-        );
-      }
-    }
   }
 
   void _loadCurrentUser() {
@@ -40,30 +28,44 @@ class AuthService {
     }
   }
 
-  Future<void> _persist() async {
-    final map = <String, dynamic>{};
-    for (final entry in _users.entries) {
-      map[entry.key] = {
-        'password': entry.value.password,
-        'user': entry.value.user.toJson(),
-      };
-    }
-    await _prefs.setString(_usersKey, jsonEncode(map));
-    if (_currentUser != null) {
-      await _prefs.setString(_currentUserKey, jsonEncode(_currentUser!.toJson()));
+  Future<void> _cacheCurrentUser(User? user) async {
+    if (user != null) {
+      await _prefs.setString(_currentUserKey, jsonEncode(user.toJson()));
     } else {
       await _prefs.remove(_currentUserKey);
     }
   }
 
+  String _hashPassword(String password) {
+    final bytes = utf8.encode(password);
+    return sha256.convert(bytes).toString();
+  }
+
   Future<User> login(String username, String password) async {
-    final entry = _users[username];
-    if (entry == null || entry.password != password) {
+    if (!CloudBaseConfig.isConfigured) {
+      throw Exception('云服务未配置');
+    }
+
+    final rows = await _db.query(
+      'users',
+      where: 'username=eq.$username',
+      limit: 1,
+    );
+
+    if (rows.isEmpty) {
       throw Exception('用户名或密码错误');
     }
-    _currentUser = entry.user;
-    await _persist();
-    return entry.user;
+
+    final row = rows.first;
+    final storedHash = row['password_hash'] as String?;
+    if (storedHash == null || storedHash != _hashPassword(password)) {
+      throw Exception('用户名或密码错误');
+    }
+
+    final user = _userFromRow(row);
+    _currentUser = user;
+    await _cacheCurrentUser(user);
+    return user;
   }
 
   Future<User> register({
@@ -72,41 +74,93 @@ class AuthService {
     String? email,
     String? phone,
   }) async {
-    if (_users.containsKey(username)) {
+    if (!CloudBaseConfig.isConfigured) {
+      throw Exception('云服务未配置');
+    }
+
+    final existing = await _db.query(
+      'users',
+      where: 'username=eq.$username',
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
       throw Exception('用户名已存在');
     }
+
+    final userId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+    final now = DateTime.now().toIso8601String();
+
+    final success = await _db.insert('users', {
+      'user_id': userId,
+      'username': username,
+      'password_hash': _hashPassword(password),
+      'email': email,
+      'phone': phone,
+      'nickname': username,
+      'created_at': now,
+    });
+
+    if (!success) {
+      throw Exception('注册失败，请稍后重试');
+    }
+
     final user = User(
-      id: 'user_${DateTime.now().millisecondsSinceEpoch}',
+      id: userId,
       username: username,
       email: email,
       phone: phone,
       nickname: username,
     );
-    _users[username] = _UserEntry(password: password, user: user);
     _currentUser = user;
-    await _persist();
+    await _cacheCurrentUser(user);
     return user;
   }
 
   Future<void> logout() async {
     _currentUser = null;
-    await _persist();
+    await _cacheCurrentUser(null);
   }
 
   Future<User> updateProfile(User updatedUser) async {
-    final entry = _users[updatedUser.username];
-    if (entry != null) {
-      _users[updatedUser.username] =
-          _UserEntry(password: entry.password, user: updatedUser);
+    if (CloudBaseConfig.isConfigured) {
+      try {
+        await _db.update('users',
+          where: 'user_id=eq.${updatedUser.id}',
+          data: {
+            'nickname': updatedUser.nickname,
+            'email': updatedUser.email,
+            'phone': updatedUser.phone,
+            'gender': updatedUser.gender,
+            'birth_date': updatedUser.birthDate?.toIso8601String(),
+            'height': updatedUser.height,
+            'weight': updatedUser.weight,
+          },
+        );
+      } catch (e) {
+        debugPrint('[AuthService] 云端更新 profile 失败: $e');
+      }
     }
     _currentUser = updatedUser;
-    await _persist();
+    await _cacheCurrentUser(updatedUser);
     return updatedUser;
   }
-}
 
-class _UserEntry {
-  final String password;
-  final User user;
-  _UserEntry({required this.password, required this.user});
+  User _userFromRow(Map<String, dynamic> row) {
+    return User(
+      id: row['user_id'] as String? ?? '',
+      username: row['username'] as String? ?? '',
+      email: row['email'] as String?,
+      phone: row['phone'] as String?,
+      nickname: row['nickname'] as String?,
+      gender: row['gender'] as String?,
+      birthDate: row['birth_date'] != null
+          ? DateTime.tryParse(row['birth_date'] as String)
+          : null,
+      height: (row['height'] as num?)?.toDouble(),
+      weight: (row['weight'] as num?)?.toDouble(),
+      createdAt: row['created_at'] != null
+          ? DateTime.tryParse(row['created_at'] as String)
+          : null,
+    );
+  }
 }

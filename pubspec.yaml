@@ -56,6 +56,9 @@ dependencies:
   # HTTP
   http: ^1.2.2
 
+  # Crypto (password hashing)
+  crypto: ^3.0.6
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -25,6 +25,7 @@ class RealtimeProvider extends ChangeNotifier {
 
   // ── 监测状态 ──
   bool _isMonitoring = false;
+  bool _isGeneratingReport = false;
   PostureReading? _currentReading;
   RealtimeSnoreReading? _currentSnoreReading;
   DateTime? _monitoringStart;
@@ -56,6 +57,7 @@ class RealtimeProvider extends ChangeNotifier {
   // ── Getters ──
 
   bool get isMonitoring => _isMonitoring;
+  bool get isGeneratingReport => _isGeneratingReport;
   bool get isDeviceConnected => _isDeviceConnected;
   PostureReading? get currentReading => _currentReading;
   RealtimeSnoreReading? get currentSnoreReading => _currentSnoreReading;
@@ -134,12 +136,16 @@ class RealtimeProvider extends ChangeNotifier {
       await _bleService.sendCommand('monitor_stop');
     }
     _isMonitoring = false;
+    _isGeneratingReport = true;
+    notifyListeners();
+
     _readingSubscription?.cancel();
     _readingSubscription = null;
     _snoreReadingSubscription?.cancel();
     _snoreReadingSubscription = null;
 
     if (_sessionReadings.isEmpty) {
+      _isGeneratingReport = false;
       notifyListeners();
       return null;
     }
@@ -185,6 +191,7 @@ class RealtimeProvider extends ChangeNotifier {
     _sessionSnoreReadings.clear();
     _currentReading = null;
     _currentSnoreReading = null;
+    _isGeneratingReport = false;
     notifyListeners();
 
     return record;

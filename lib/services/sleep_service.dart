@@ -6,16 +6,29 @@ import 'cloud_sync_service.dart';
 class SleepService extends ChangeNotifier {
   final List<SleepRecord> _records = [];
   CloudSyncService? _cloudSync;
+  String? _currentUserId;
 
   void setCloudSync(CloudSyncService sync) {
     _cloudSync = sync;
   }
 
-  List<SleepRecord> getRecords() => List.unmodifiable(_records);
+  void setCurrentUser(String? userId) {
+    _currentUserId = userId;
+    notifyListeners();
+  }
+
+  String? get currentUserId => _currentUserId;
+
+  List<SleepRecord> _userRecords() {
+    if (_currentUserId == null) return _records;
+    return _records.where((r) => r.userId == _currentUserId).toList();
+  }
+
+  List<SleepRecord> getRecords() => List.unmodifiable(_userRecords());
 
   SleepRecord? getRecordByDate(DateTime date) {
     try {
-      return _records.firstWhere(
+      return _userRecords().firstWhere(
         (r) =>
             r.date.year == date.year &&
             r.date.month == date.month &&
@@ -28,21 +41,23 @@ class SleepService extends ChangeNotifier {
 
   SleepRecord? getRecordById(String id) {
     try {
-      return _records.firstWhere((r) => r.id == id);
+      return _userRecords().firstWhere((r) => r.id == id);
     } catch (_) {
       return null;
     }
   }
 
   List<SleepRecord> getRecentRecords(int days) {
-    final sorted = List<SleepRecord>.from(_records)
+    final filtered = _userRecords();
+    final sorted = List<SleepRecord>.from(filtered)
       ..sort((a, b) => b.bedTime.compareTo(a.bedTime));
     return sorted.take(days).toList();
   }
 
   SleepRecord? get latestRecord {
-    if (_records.isEmpty) return null;
-    final sorted = List<SleepRecord>.from(_records)
+    final filtered = _userRecords();
+    if (filtered.isEmpty) return null;
+    final sorted = List<SleepRecord>.from(filtered)
       ..sort((a, b) => b.bedTime.compareTo(a.bedTime));
     return sorted.first;
   }
@@ -58,7 +73,12 @@ class SleepService extends ChangeNotifier {
   }
 
   void addRecordLocal(SleepRecord record) {
-    if (_records.any((r) => r.id == record.id)) return;
+    if (_records.any((r) =>
+        r.id == record.id ||
+        (r.bedTime == record.bedTime && r.wakeTime == record.wakeTime)
+    )) {
+      return;
+    }
     _records.add(record);
     notifyListeners();
   }

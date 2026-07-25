@@ -103,4 +103,30 @@ class CloudBaseDB {
       return false;
     }
   }
+
+  /// 更新记录
+  ///
+  /// [where] 过滤条件，如 "user_id=eq.abc123"
+  /// [data] 要更新的字段
+  Future<bool> update(String table, {required String where, required Map<String, dynamic> data}) async {
+    final queryParams = <String, String>{};
+    for (final part in where.split('&')) {
+      final eqIdx = part.indexOf('=');
+      if (eqIdx > 0) {
+        queryParams[part.substring(0, eqIdx)] = part.substring(eqIdx + 1);
+      }
+    }
+    final uri = Uri.parse(_tablePath(table)).replace(queryParameters: queryParams);
+    try {
+      final resp = await http.patch(uri, headers: _headers, body: jsonEncode(data));
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        return true;
+      }
+      debugPrint('[CloudBaseDB] 更新失败 $table: ${resp.statusCode} ${resp.body}');
+      return false;
+    } catch (e) {
+      debugPrint('[CloudBaseDB] 更新异常 $table: $e');
+      return false;
+    }
+  }
 }

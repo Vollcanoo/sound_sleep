@@ -15,7 +15,23 @@ class SleepProvider extends ChangeNotifier {
 
   SleepProvider(this._sleepService, this._cloudSync) {
     _sleepService.addListener(_onRecordsChanged);
-    fetchFromCloud();
+  }
+
+  void setCurrentUser(String? userId) {
+    _sleepService.setCurrentUser(userId);
+    if (userId != null) {
+      _claimAndFetch(userId);
+    }
+  }
+
+  Future<void> _claimAndFetch(String userId) async {
+    if (!CloudBaseConfig.isConfigured) return;
+    try {
+      await _cloudSync.claimOrphanRecords(userId);
+    } catch (e) {
+      debugPrint('[SleepProvider] 认领旧记录失败: $e');
+    }
+    await fetchFromCloud();
   }
 
   void _onRecordsChanged() {
@@ -74,7 +90,8 @@ class SleepProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final cloudRecords = await _cloudSync.fetchRecords();
+      final userId = _sleepService.currentUserId;
+      final cloudRecords = await _cloudSync.fetchRecords(userId: userId, limit: 500);
       for (final record in cloudRecords) {
         _sleepService.addRecordLocal(record);
       }

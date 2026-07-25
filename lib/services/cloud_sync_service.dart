@@ -44,7 +44,9 @@ class CloudSyncService {
 
   /// 插入 sleep_records 并获取自增 id，最多重试 3 次查询
   Future<int?> _insertAndGetRecordId(SleepRecord record) async {
-    final success = await _db.insert('sleep_records', {
+    // 尝试包含 user_id，如果表没有该列则回退
+    var data = <String, dynamic>{
+      'user_id': record.userId,
       'date': record.date.toIso8601String().substring(0, 10),
       'bed_time': record.bedTime.toIso8601String(),
       'wake_time': record.wakeTime.toIso8601String(),
@@ -53,7 +55,14 @@ class CloudSyncService {
       'get_up_count': record.getUpCount,
       'device_id': 'device_esp32',
       'created_at': DateTime.now().toIso8601String(),
-    });
+    };
+
+    var success = await _db.insert('sleep_records', data);
+    if (!success) {
+      // 可能是 user_id 列不存在，去掉重试
+      data.remove('user_id');
+      success = await _db.insert('sleep_records', data);
+    }
 
     if (!success) return null;
 
@@ -263,9 +272,10 @@ class CloudSyncService {
   }
 
   /// 从云端拉取睡眠记录
-  Future<List<SleepRecord>> fetchRecords({int limit = 30}) async {
+  Future<List<SleepRecord>> fetchRecords({int limit = 30, String? userId}) async {
     final rows = await _db.query(
       'sleep_records',
+      where: userId != null ? 'user_id=eq.$userId' : null,
       orderBy: 'date.desc',
       limit: limit,
     );
@@ -278,6 +288,24 @@ class CloudSyncService {
     return records;
   }
 
+  /// 将 user_id 为空的旧记录认领给当前用户
+  Future<void> claimOrphanRecords(String userId) async {
+    final orphans = await _db.query(
+      'sleep_records',
+      where: 'user_id=is.null',
+      limit: 200,
+    );
+    if (orphans.isEmpty) return;
+    debugPrint('[CloudSync] 发现 ${orphans.length} 条无主记录，认领给 $userId');
+    for (final row in orphans) {
+      final id = row['id'] as int;
+      await _db.update('sleep_records',
+        where: 'id=eq.$id',
+        data: {'user_id': userId},
+      );
+    }
+  }
+
   Future<SleepRecord> _toSleepRecord(
       Map<String, dynamic> row, int recordId) async {
     final snoringEvents = await _fetchSnoringEvents(recordId);
@@ -287,7 +315,7 @@ class CloudSyncService {
 
     return SleepRecord(
       id: 'cloud_$recordId',
-      userId: row['_openid'] as String? ?? 'anon',
+      userId: row['user_id'] as String? ?? '',
       date: DateTime.parse(row['date'] as String),
       bedTime: DateTime.parse(row['bed_time'] as String),
       wakeTime: DateTime.parse(row['wake_time'] as String),
