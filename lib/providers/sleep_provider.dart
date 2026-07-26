@@ -83,7 +83,7 @@ class SleepProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 从云端拉取历史记录
+  /// 从云端拉取历史记录（逐条刷新 UI）
   Future<void> fetchFromCloud() async {
     if (!CloudBaseConfig.isConfigured) return;
     _isSyncing = true;
@@ -91,11 +91,16 @@ class SleepProvider extends ChangeNotifier {
 
     try {
       final userId = _sleepService.currentUserId;
-      final cloudRecords = await _cloudSync.fetchRecords(userId: userId, limit: 500);
-      for (final record in cloudRecords) {
-        _sleepService.addRecordLocal(record);
-      }
-      debugPrint('[SleepProvider] 从云端拉取了 ${cloudRecords.length} 条记录');
+      int count = 0;
+      await _cloudSync.fetchRecordsStreaming(
+        userId: userId,
+        limit: 500,
+        onRecord: (record) {
+          _sleepService.addRecordLocal(record);
+          count++;
+        },
+      );
+      debugPrint('[SleepProvider] 从云端拉取了 $count 条记录');
     } catch (e) {
       debugPrint('[SleepProvider] 云端拉取失败: $e');
     }

@@ -288,6 +288,30 @@ class CloudSyncService {
     return records;
   }
 
+  /// 流式拉取：每拉到一条就回调，UI 可逐条刷新
+  Future<void> fetchRecordsStreaming({
+    int limit = 30,
+    String? userId,
+    required void Function(SleepRecord) onRecord,
+  }) async {
+    final rows = await _db.query(
+      'sleep_records',
+      where: userId != null ? 'user_id=eq.$userId' : null,
+      orderBy: 'date.desc',
+      limit: limit,
+    );
+
+    for (final row in rows) {
+      final recordId = row['id'] as int;
+      try {
+        final record = await _toSleepRecord(row, recordId);
+        onRecord(record);
+      } catch (e) {
+        debugPrint('[CloudSync] 解析记录 $recordId 失败: $e');
+      }
+    }
+  }
+
   /// 将 user_id 为空的旧记录认领给当前用户
   Future<void> claimOrphanRecords(String userId) async {
     final orphans = await _db.query(

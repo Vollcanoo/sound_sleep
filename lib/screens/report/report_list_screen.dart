@@ -10,32 +10,44 @@ class ReportListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final records = context.watch<SleepProvider>().records;
+    final provider = context.watch<SleepProvider>();
+    final records = provider.records;
+    final isSyncing = provider.isSyncing;
     final sorted = List.of(records)..sort((a, b) => b.date.compareTo(a.date));
 
     return Scaffold(
       appBar: AppBar(title: const Text('睡眠报告')),
       body: sorted.isEmpty
           ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.nights_stay,
-                      size: 64, color: Colors.grey.shade300),
-                  const SizedBox(height: 16),
-                  Text(
-                    '还没有睡眠报告',
-                    style: TextStyle(
-                        fontSize: 16, color: Colors.grey.shade500),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '当传感器检测到压力变化时将自动生成',
-                    style: TextStyle(
-                        fontSize: 13, color: Colors.grey.shade400),
-                  ),
-                ],
-              ),
+              child: isSyncing
+                  ? const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('正在从云端加载历史报告…',
+                            style: TextStyle(fontSize: 14, color: Colors.grey)),
+                      ],
+                    )
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.nights_stay,
+                            size: 64, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text(
+                          '还没有睡眠报告',
+                          style: TextStyle(
+                              fontSize: 16, color: Colors.grey.shade500),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '当传感器检测到压力变化时将自动生成',
+                          style: TextStyle(
+                              fontSize: 13, color: Colors.grey.shade400),
+                        ),
+                      ],
+                    ),
             )
           : Column(
               children: [

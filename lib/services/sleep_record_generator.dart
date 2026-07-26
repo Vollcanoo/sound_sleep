@@ -215,49 +215,55 @@ class SleepRecordGenerator {
     required List<SnoringEvent> snoringEvents,
     required List<PostureSegment> postureSegments,
   }) {
-    var score = 100;
+    double score = 100;
 
-    // 睡眠时长
+    // 睡眠时长评分（满分 30 分，理想 7-9 小时）
     final hours = durationMinutes / 60.0;
-    if (hours < 7) {
-      score -= 10;
-    } else if (hours > 9) {
-      score -= 5;
+    double durationScore;
+    if (hours >= 7 && hours <= 9) {
+      durationScore = 30;
+    } else if (hours < 7) {
+      durationScore = max(0, 30 - (7 - hours) * 6);
+    } else {
+      durationScore = max(0, 30 - (hours - 9) * 4);
     }
 
-    // 起身次数
-    score -= getUpCount * 5;
+    // 起身次数评分（满分 20 分）
+    final getUpScore = max(0.0, 20 - getUpCount * 6.0);
 
-    // 离床总时长
-    if (awayMinutes > 30) {
-      score -= 5;
-    }
+    // 离床时长评分（满分 15 分）
+    final awayRatio = durationMinutes > 0 ? awayMinutes / durationMinutes : 0.0;
+    final awayScore = max(0.0, 15 - awayRatio * 50);
 
-    // 打鼾事件数
-    if (snoringEvents.length > 20) {
-      score -= 10;
-    } else if (snoringEvents.length > 10) {
-      score -= 5;
-    }
-
-    // 高概率打鼾（平均概率 > 0.7）
+    // 打鼾评分（满分 20 分）
+    double snoreScore = 20;
     if (snoringEvents.isNotEmpty) {
-      final meanProb =
-          snoringEvents
-              .where((e) => e.avgProbability != null)
-              .fold(0.0, (sum, e) => sum + e.avgProbability!) /
-          max(1, snoringEvents.where((e) => e.avgProbability != null).length);
-      if (meanProb > 0.7) {
-        score -= 5;
+      final totalSnoreMin = snoringEvents.fold<double>(
+          0, (sum, e) => sum + e.durationMinutes);
+      final snoreRatio = durationMinutes > 0 ? totalSnoreMin / durationMinutes : 0.0;
+      snoreScore = max(0, 20 - snoreRatio * 60);
+
+      final probEvents = snoringEvents.where((e) => e.avgProbability != null);
+      if (probEvents.isNotEmpty) {
+        final meanProb = probEvents.fold(0.0, (sum, e) => sum + e.avgProbability!) /
+            probEvents.length;
+        if (meanProb > 0.7) {
+          snoreScore = snoreScore * 0.7;
+        } else if (meanProb > 0.5) {
+          snoreScore = snoreScore * 0.85;
+        }
       }
     }
 
-    // 频繁翻身（姿态变化 > 20 次）
-    if (postureSegments.length > 20) {
-      score -= 5;
+    // 姿态稳定性评分（满分 15 分）
+    double postureScore = 15;
+    if (postureSegments.isNotEmpty && durationMinutes > 0) {
+      final changesPerHour = postureSegments.length / hours;
+      postureScore = max(0, 15 - changesPerHour * 1.5);
     }
 
-    return score.clamp(30, 98);
+    score = durationScore + getUpScore + awayScore + snoreScore + postureScore;
+    return score.round().clamp(30, 98);
   }
 
   /// 将 SnoreResult 中的事件转换为 SnoringEvent 列表

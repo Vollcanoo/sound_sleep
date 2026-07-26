@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -25,7 +26,7 @@ class CloudBaseDB {
         Uri.parse(_tablePath(table)),
         headers: _headers,
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         return true;
       }
@@ -62,7 +63,8 @@ class CloudBaseDB {
     final uri = Uri.parse(_tablePath(table)).replace(queryParameters: queryParams);
 
     try {
-      final resp = await http.get(uri, headers: _headers);
+      final resp = await http.get(uri, headers: _headers)
+          .timeout(const Duration(seconds: 15));
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         if (resp.body.isEmpty) return [];
         final decoded = jsonDecode(resp.body);
