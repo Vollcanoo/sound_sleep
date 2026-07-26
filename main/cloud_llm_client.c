@@ -647,7 +647,7 @@ int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
  * ──────────────────────────────────────────────────── */
 
 static const char *WINDOW_SYSTEM_PROMPT =
-    "你是睡眠气囊控制AI。根据过去15秒的传感器聚合数据，决定气泵控制指令。\n\n"
+    "你是睡眠气囊控制AI。根据过去5分钟的传感器聚合数据，决定气泵控制指令。\n\n"
     "你必须严格按照以下JSON格式回复，不要附加任何其他文本：\n"
     "{\"command\":{\"action\":\"inflate|deflate|hold\","
     "\"zone\":\"left|right|both\","
@@ -659,7 +659,7 @@ static const char *WINDOW_SYSTEM_PROMPT =
     "- inflate 时启动对应侧气泵；deflate 时关闭气泵并打开对应侧泄气阀\n"
     "- hold 时不驱动气泵或泄气阀\n\n"
     "决策优先级：\n"
-    "1. 若之前已充气，且过去15秒鼾声消失（snore_detected_ratio<0.1），优先输出 deflate both，intensity=70，duration_sec=9。\n"
+    "1. 若之前已充气，且过去5分钟鼾声消失（snore_detected_ratio<0.1），优先输出 deflate both，intensity=70，duration_sec=9。\n"
     "2. 当前翻身中（MOVING）时输出 hold。\n"
     "3. 无鼾声（snore_detected_ratio<0.1）且之前未充气时输出 hold。\n"
     "4. 仰卧为主 + 鼾声严重（snore_minutes_per_hour>=4）：inflate right，intensity 60-80。\n"
@@ -698,7 +698,7 @@ static char *build_window_request_json(const llm_window_summary_t *window)
 
     char user_content[512];
     snprintf(user_content, sizeof(user_content),
-        "过去15秒传感器聚合数据：\n"
+        "过去5分钟传感器聚合数据：\n"
         "采样帧数: %d (约%.0f秒)\n"
         "平均鼾声概率: %.4f\n"
         "最大鼾声概率: %.4f\n"

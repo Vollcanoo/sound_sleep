@@ -1,7 +1,7 @@
 /**
  * llm_periodic.c — 周期性 LLM 气泵控制
  *
- * 每 15 秒聚合传感器数据，调用 LLM 获取气泵控制指令。
+ * 每 5 分钟聚合传感器数据，调用 LLM 获取气泵控制指令。
  * 两种模式（自动/手动）下均运行。
  */
 #include <string.h>
@@ -19,8 +19,8 @@
 
 static const char *TAG = "LLM_PERIODIC";
 
-#define LLM_WINDOW_FRAMES    15           /* 15s * 1Hz */
-#define LLM_OVERRIDE_MS      (15*1000)    /* 15 秒有效期 */
+#define LLM_WINDOW_FRAMES    300          /* 5min * 60s * 1Hz */
+#define LLM_OVERRIDE_MS      (5*60*1000)  /* 5 分钟有效期 */
 #define LLM_TASK_STACK       16384
 
 /* ── 窗口统计（running stats）──────────────────────── */
@@ -58,7 +58,7 @@ static void llm_analyze_task(void *arg)
                      cmd.action, cmd.zone, cmd.intensity, cmd.duration_sec);
             xQueueSend(s_cmd_queue, &cmd, pdMS_TO_TICKS(1000));
         } else {
-            ESP_LOGI(TAG, "LLM 指令: hold (override 15s)");
+            ESP_LOGI(TAG, "LLM 指令: hold (override 5min)");
         }
     } else {
         ESP_LOGW(TAG, "LLM 调用失败 (err=%d)，本轮无指令", ret);
@@ -75,7 +75,7 @@ void llm_periodic_init(QueueHandle_t cmd_queue)
     s_cmd_queue = cmd_queue;
     memset(&s_stats, 0, sizeof(s_stats));
     s_override_expire_ms = 0;
-    ESP_LOGI(TAG, "LLM 周期控制已初始化 (间隔 %d 帧 = 15s)", LLM_WINDOW_FRAMES);
+    ESP_LOGI(TAG, "LLM 周期控制已初始化 (间隔 %d 帧 = 5min)", LLM_WINDOW_FRAMES);
 }
 
 void llm_periodic_on_frame(const snore_features_t *feat)
@@ -107,7 +107,7 @@ void llm_periodic_on_frame(const snore_features_t *feat)
     s_stats.last_posture = p;
     s_stats.last_confidence = feat->posture.confidence;
 
-    /* 达到 15 秒窗口 */
+    /* 达到 5 分钟窗口 */
     if (s_stats.frame_count >= LLM_WINDOW_FRAMES) {
         int fc = s_stats.frame_count;
 
