@@ -657,6 +657,7 @@ static const char *WINDOW_SYSTEM_PROMPT =
     "- max_probability>0.9 且 snore_detected_ratio>0.3 → 非常严重, intensity 70-80\n"
     "- 当前翻身中(MOVING) → hold\n"
     "- confidence<0.5 → 保守处理，降低intensity\n"
+    "- 之前已充气但鼾声消失(snore_detected_ratio<0.1) → deflate both, intensity 50, duration_sec 5\n"
     "- duration_sec 按 intensity 比例在 1-10 秒区间调节";
 
 static char *build_window_request_json(const llm_window_summary_t *window)
