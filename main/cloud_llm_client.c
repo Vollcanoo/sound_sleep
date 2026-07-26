@@ -331,7 +331,7 @@ static int parse_response_json(const char *response_body,
 
         if (cmd_out->intensity < 0)    cmd_out->intensity = 0;
         if (cmd_out->intensity > 100)  cmd_out->intensity = 100;
-        if (cmd_out->duration_sec < 1) cmd_out->duration_sec = 1;
+        if (cmd_out->duration_sec < 0) cmd_out->duration_sec = 0;
         if (cmd_out->duration_sec > 10) cmd_out->duration_sec = 10;
 
         ret = 0;
@@ -643,22 +643,30 @@ static const char *WINDOW_SYSTEM_PROMPT =
     "{\"command\":{\"action\":\"inflate|deflate|hold\","
     "\"zone\":\"left|right|both\","
     "\"intensity\":0到100的整数,"
-    "\"duration_sec\":1到10的整数}}\n\n"
+    "\"duration_sec\":0到10的整数}}\n\n"
     "硬件说明：\n"
     "- 枕头内置左/右两个独立气囊\n"
-    "- 充气某一侧会抬高该侧，促使用户头部偏向另一侧\n\n"
-    "决策规则：\n"
-    "- 无鼾声(snore_detected_ratio<0.1) → hold\n"
-    "- 仰卧为主 + 鼾声严重(snore_minutes_per_hour>=4) → inflate right, intensity 60-80\n"
-    "- 仰卧为主 + 鼾声中等(2-4分钟/时) → inflate right, intensity 30-50\n"
-    "- 仰卧为主 + 鼾声轻微(<2分钟/时) → hold\n"
-    "- 左侧卧为主 + 鼾声严重 → inflate left, intensity 50-70\n"
-    "- 右侧卧为主 + 鼾声严重 → inflate right, intensity 50-70\n"
-    "- max_probability>0.9 且 snore_detected_ratio>0.3 → 非常严重, intensity 70-80\n"
-    "- 当前翻身中(MOVING) → hold\n"
-    "- confidence<0.5 → 保守处理，降低intensity\n"
-    "- 之前已充气但鼾声消失(snore_detected_ratio<0.1) → deflate both, intensity 50, duration_sec 5\n"
-    "- duration_sec 按 intensity 比例在 1-10 秒区间调节";
+    "- 充气某一侧会抬高该侧，促使用户头部偏向另一侧\n"
+    "- inflate 时启动对应侧气泵；deflate 时关闭气泵并打开对应侧泄气阀\n"
+    "- hold 时不驱动气泵或泄气阀\n\n"
+    "决策优先级：\n"
+    "1. 若之前已充气，且过去15秒鼾声消失（snore_detected_ratio<0.1），优先输出 deflate both，intensity=70，duration_sec=9。\n"
+    "2. 当前翻身中（MOVING）时输出 hold。\n"
+    "3. 无鼾声（snore_detected_ratio<0.1）且之前未充气时输出 hold。\n"
+    "4. 仰卧为主 + 鼾声严重（snore_minutes_per_hour>=4）：inflate right，intensity 60-80。\n"
+    "5. 仰卧为主 + 鼾声中等（2-4分钟/时）：inflate right，intensity 40-50。\n"
+    "6. 仰卧为主 + 鼾声轻微（<2分钟/时）：hold。\n"
+    "7. 左侧卧为主 + 鼾声严重：inflate left，intensity 50-70。\n"
+    "8. 右侧卧为主 + 鼾声严重：inflate right，intensity 50-70。\n"
+    "9. max_probability>0.9 且 snore_detected_ratio>0.3：视为非常严重，intensity 70-80。\n"
+    "10. confidence<0.5 时保守处理，降低 intensity。\n\n"
+    "duration_sec 必须按 intensity 分档：\n"
+    "- action=hold：intensity=0，duration_sec=0\n"
+    "- intensity 1-39：duration_sec=5\n"
+    "- intensity 40-59：duration_sec=7\n"
+    "- intensity 60-69：duration_sec=8\n"
+    "- intensity 70-79：duration_sec=9\n"
+    "- intensity 80-100：duration_sec=10";
 
 static char *build_window_request_json(const llm_window_summary_t *window)
 {
@@ -794,7 +802,7 @@ static int parse_window_response_json(const char *response_body,
 
         if (cmd_out->intensity < 0)    cmd_out->intensity = 0;
         if (cmd_out->intensity > 100)  cmd_out->intensity = 100;
-        if (cmd_out->duration_sec < 1) cmd_out->duration_sec = 1;
+        if (cmd_out->duration_sec < 0) cmd_out->duration_sec = 0;
         if (cmd_out->duration_sec > 10) cmd_out->duration_sec = 10;
     } else {
         strncpy(cmd_out->action, "hold", sizeof(cmd_out->action) - 1);
