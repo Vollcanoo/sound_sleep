@@ -107,7 +107,7 @@ static const char *SYSTEM_PROMPT =
     "\"command\":{\"action\":\"inflate|deflate|hold\","
     "\"zone\":\"left|right|both\","
     "\"intensity\":0到100的整数,"
-    "\"duration_sec\":5到30的整数}}\n\n"
+    "\"duration_sec\":1到10的整数}}\n\n"
     "硬件说明：\n"
     "- 枕头内置左/右两个独立气囊，可分别充气/放气\n"
     "- 充气某一侧会抬高该侧，促使用户头部偏向另一侧\n"
@@ -133,7 +133,7 @@ static const char *SYSTEM_PROMPT =
     "- 翻身中(MOVING) → action=hold（等待稳定）\n"
     "- 头不在枕上(NO_HEAD) → action=hold\n"
     "- confidence<0.5 → 睡姿不确定，保守处理，降低 intensity\n"
-    "- duration_sec 按 intensity 比例在 5-20 秒区间调节";
+    "- duration_sec 按 intensity 比例在 1-10 秒区间调节";
 
 /* ────────────────────────────────────────────────────
  *  HTTP 事件回调 — 将响应体累积到 user_data 缓冲区
@@ -332,7 +332,7 @@ static int parse_response_json(const char *response_body,
         if (cmd_out->intensity < 0)    cmd_out->intensity = 0;
         if (cmd_out->intensity > 100)  cmd_out->intensity = 100;
         if (cmd_out->duration_sec < 1) cmd_out->duration_sec = 1;
-        if (cmd_out->duration_sec > 60) cmd_out->duration_sec = 60;
+        if (cmd_out->duration_sec > 10) cmd_out->duration_sec = 10;
 
         ret = 0;
     } else {
@@ -638,12 +638,12 @@ int cloud_llm_analyze_summary(const sleep_session_summary_t *summary,
  * ──────────────────────────────────────────────────── */
 
 static const char *WINDOW_SYSTEM_PROMPT =
-    "你是睡眠气囊控制AI。根据过去5分钟的传感器聚合数据，决定气泵控制指令。\n\n"
+    "你是睡眠气囊控制AI。根据过去15秒的传感器聚合数据，决定气泵控制指令。\n\n"
     "你必须严格按照以下JSON格式回复，不要附加任何其他文本：\n"
     "{\"command\":{\"action\":\"inflate|deflate|hold\","
     "\"zone\":\"left|right|both\","
     "\"intensity\":0到100的整数,"
-    "\"duration_sec\":5到30的整数}}\n\n"
+    "\"duration_sec\":1到10的整数}}\n\n"
     "硬件说明：\n"
     "- 枕头内置左/右两个独立气囊\n"
     "- 充气某一侧会抬高该侧，促使用户头部偏向另一侧\n\n"
@@ -657,7 +657,7 @@ static const char *WINDOW_SYSTEM_PROMPT =
     "- max_probability>0.9 且 snore_detected_ratio>0.3 → 非常严重, intensity 70-80\n"
     "- 当前翻身中(MOVING) → hold\n"
     "- confidence<0.5 → 保守处理，降低intensity\n"
-    "- duration_sec 按 intensity 比例在 5-20 秒区间调节";
+    "- duration_sec 按 intensity 比例在 1-10 秒区间调节";
 
 static char *build_window_request_json(const llm_window_summary_t *window)
 {
@@ -794,7 +794,7 @@ static int parse_window_response_json(const char *response_body,
         if (cmd_out->intensity < 0)    cmd_out->intensity = 0;
         if (cmd_out->intensity > 100)  cmd_out->intensity = 100;
         if (cmd_out->duration_sec < 1) cmd_out->duration_sec = 1;
-        if (cmd_out->duration_sec > 60) cmd_out->duration_sec = 60;
+        if (cmd_out->duration_sec > 10) cmd_out->duration_sec = 10;
     } else {
         strncpy(cmd_out->action, "hold", sizeof(cmd_out->action) - 1);
         strncpy(cmd_out->zone, "both", sizeof(cmd_out->zone) - 1);
