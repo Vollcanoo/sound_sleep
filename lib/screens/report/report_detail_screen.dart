@@ -229,33 +229,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
               ),
             ),
 
-            // ── 报告说明 ──
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.sensors, size: 18, color: Colors.grey.shade500),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      '本报告由压力传感器自动生成。从首次检测到压力（上床）到压力最终消失（离床），'
-                      '期间短暂的压力消失计为起身事件。',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade500,
-                        height: 1.5,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
             const SizedBox(height: 24),
           ],
         ),
